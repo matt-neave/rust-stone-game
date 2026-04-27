@@ -1,0 +1,20 @@
+[package]
+name = "rust-stones"
+version = "0.1.0"
+edition = "2021"
+
+# Pinned to Bevy 0.18. See rust-SNKRX/Cargo.toml for the API caveats this
+# version pulls in (MessageReader/MessageWriter, Sprite::from_color, Camera2d,
+# .single() returning Result).
+[dependencies]
+bevy = "0.18"
+rand = "0.8"
+
+[features]
+dev = ["bevy/dynamic_linking"]
+
+[profile.dev]
+opt-level = 1
+
+[profile.release]
+lto = "thin"

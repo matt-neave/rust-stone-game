@@ -1,0 +1,23 @@
+# Rust build output
+/target/
+
+# Rustfmt / cargo-fmt backups
+*.rs.bk
+
+# Editor / IDE local state
+.idea/
+.vscode/
+*.code-workspace
+*.swp
+*.swo
+
+# Claude Code session state (kept local)
+.claude/
+
+# OS metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Misc binary debug output (Windows)
+*.pdb

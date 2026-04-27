@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(2)",
+      "Bash(cargo build *)",
+      "Bash(cargo check *)",
+      "Bash(RUST_BACKTRACE=1 timeout 10 cargo run)",
+      "Bash(timeout 8 cargo run)"
+    ]
+  }
+}
