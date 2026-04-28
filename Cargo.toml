@@ -10,11 +10,22 @@ edition = "2021"
 bevy = "0.18"
 rand = "0.8"
 
+# rand 0.8's thread_rng pulls in `getrandom`, which on wasm needs the
+# `js` feature flag to use the browser's crypto API. Native targets
+# don't see this entry.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.2", features = ["js"] }
+
 [features]
 dev = ["bevy/dynamic_linking"]
 
 [profile.dev]
 opt-level = 1
 
+# Release profile is tuned for itch.io — fat LTO and a single codegen
+# unit shave a meaningful chunk off the wasm binary; `strip = true`
+# drops symbol tables that the browser doesn't need.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
+strip = true

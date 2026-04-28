@@ -19,7 +19,6 @@
 use bevy::prelude::*;
 
 use crate::audio::{PlaySoundEvent, SoundKind};
-use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{
     BOUNCE_CHANCE_MAX, INTERNAL_HEIGHT, SHORELINE_X, SKIMMER_BOUNCE_CHANCE, SKIMMER_CHARGE_TIME,
@@ -172,8 +171,8 @@ fn spawn_skimmer(
         Layer(Z_CREW),
         Sprite {
             image: shapes.humanoid.clone(),
-            color: colors::SKIMMER_BODY,
-            custom_size: Some(Vec2::new(4.0, 6.0)),
+            color: Color::WHITE,
+            custom_size: Some(Vec2::new(16.0, 9.0)),
             ..default()
         },
         Transform::default(),

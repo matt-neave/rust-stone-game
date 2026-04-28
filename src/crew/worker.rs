@@ -5,7 +5,6 @@ use bevy::prelude::*;
 use rand::Rng;
 use std::f32::consts::PI;
 
-use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{HUT_BODY_H, HUT_X, HUT_Y, WORKER_WANDER_RADIUS, Z_CREW};
 use crate::render::shapes::Shapes;
@@ -78,8 +77,8 @@ fn spawn_worker_entity(commands: &mut Commands, shapes: &Shapes, pos: Vec2) -> E
             Layer(Z_CREW),
             Sprite {
                 image: shapes.humanoid.clone(),
-                color: colors::WORKER_BODY,
-                custom_size: Some(Vec2::new(4.0, 6.0)),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(16.0, 9.0)),
                 ..default()
             },
             Transform::default(),

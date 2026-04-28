@@ -32,8 +32,8 @@ use super::layout::{
 use super::purchase::row_visible;
 use super::{
     ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo, DetailBody, DetailHeader, FisherHut, Hut,
-    MinerHut, PanelChromePart, PanelKind, PanelTag, Pier, PurchaseButton, PurchaseKind, SkimmerHut,
-    CAVE_PANEL_KINDS,
+    MinerHut, PanelChromePart, PanelKind, PanelTag, Pier, Port, PurchaseButton, PurchaseKind,
+    SkimmerHut, CAVE_PANEL_KINDS,
 };
 
 /// Run the cave panel relayout — recompute geometry, write
@@ -45,6 +45,7 @@ pub(super) fn relayout_cave_panel(
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     mut geo: ResMut<CavePanelGeo>,
     mut chrome_sprites: Query<
         (&PanelTag, &PanelChromePart, &mut Pos, &mut Sprite),
@@ -86,6 +87,7 @@ pub(super) fn relayout_cave_panel(
         && !skimmer_hut.is_changed()
         && !fisher_hut.is_changed()
         && !pier.is_changed()
+        && !port.is_changed()
     {
         // First-frame initialisation: the resource starts at zeroed
         // defaults, so still run once if the count is zero.
@@ -97,7 +99,7 @@ pub(super) fn relayout_cave_panel(
     let visible: Vec<PurchaseKind> = CAVE_PANEL_KINDS
         .iter()
         .copied()
-        .filter(|k| row_visible(*k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier))
+        .filter(|k| row_visible(*k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port))
         .collect();
     let count = visible.len();
     if count == 0 {

@@ -11,7 +11,10 @@ use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::*;
-use crate::economy::{FisherHut, Hut, MinerHut, PurchaseEvent, PurchaseKind, SkimmerHut, Workers};
+use crate::economy::{
+    BeachcomberHut, FisherHut, Hut, MinerHut, PurchaseEvent, PurchaseKind, SkimmerHut,
+    StonemasonHut, Workers,
+};
 use crate::render::shapes::Shapes;
 
 #[derive(Component)]
@@ -82,6 +85,8 @@ fn on_purchase(
     mut miner_hut: ResMut<MinerHut>,
     mut skimmer_hut: ResMut<SkimmerHut>,
     mut fisher_hut: ResMut<FisherHut>,
+    mut bc_hut: ResMut<BeachcomberHut>,
+    mut sm_hut: ResMut<StonemasonHut>,
     mut workers: ResMut<Workers>,
     mut spawn_worker: MessageWriter<SpawnWorkerEvent>,
     mut sound: MessageWriter<PlaySoundEvent>,
@@ -155,9 +160,49 @@ fn on_purchase(
                 );
                 play_build_sound(&mut sound);
             }
+            PurchaseKind::HutBeachcomber => {
+                if bc_hut.owned { continue; }
+                bc_hut.owned = true;
+                spawn_hut_visual(
+                    &mut commands,
+                    &shapes,
+                    HUT_BEACHCOMBER_X,
+                    HUT_BEACHCOMBER_Y,
+                    colors::BEACHCOMBER_BODY,
+                );
+                spawn_starter_workers(
+                    &mut spawn_worker,
+                    &mut workers,
+                    HUT_BEACHCOMBER_X,
+                    HUT_BEACHCOMBER_Y,
+                );
+                play_build_sound(&mut sound);
+            }
+            PurchaseKind::HutStonemason => {
+                if sm_hut.owned { continue; }
+                sm_hut.owned = true;
+                spawn_hut_visual(
+                    &mut commands,
+                    &shapes,
+                    HUT_STONEMASON_X,
+                    HUT_STONEMASON_Y,
+                    colors::STONEMASON_BODY,
+                );
+                spawn_starter_workers(
+                    &mut spawn_worker,
+                    &mut workers,
+                    HUT_STONEMASON_X,
+                    HUT_STONEMASON_Y,
+                );
+                play_build_sound(&mut sound);
+            }
             PurchaseKind::Worker => {
                 if !hut.owned { continue; }
                 workers.count += 1;
+                // Track cumulative direct-buys for the dynamic
+                // pricing curve. Starter workers from huts don't
+                // bump this — only paid worker-row purchases do.
+                workers.purchased += 1;
                 spawn_worker.write(SpawnWorkerEvent {
                     pos: Vec2::new(HUT_X, HUT_Y + HUT_BODY_H * 0.5 + 12.0),
                 });
@@ -166,10 +211,15 @@ fn on_purchase(
             // purchases are consumed by `structures::pier`. Nothing
             // for the hut to do for any of those.
             PurchaseKind::Miner
+            | PurchaseKind::MinerDamage
             | PurchaseKind::Skimmer
             | PurchaseKind::SkimUpgrade
             | PurchaseKind::Fisherman
+            | PurchaseKind::Beachcomber
+            | PurchaseKind::Stonemason
+            | PurchaseKind::Boatman
             | PurchaseKind::Pier
+            | PurchaseKind::Port
             | PurchaseKind::Fish => {}
         }
     }

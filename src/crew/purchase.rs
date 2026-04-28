@@ -35,8 +35,18 @@ pub(super) fn handle_role_purchase(
     mut sound: MessageWriter<PlaySoundEvent>,
 ) {
     for ev in events.read() {
-        // Hut + plain worker purchases live in `structures::hut`.
-        if matches!(ev.kind, PurchaseKind::Hut | PurchaseKind::Worker) {
+        // Only true worker→specialist conversions consume a worker.
+        // Hut purchases, plain Worker buys, repeatable upgrades, fish
+        // buckets, etc. don't go through this dispatcher.
+        if !matches!(
+            ev.kind,
+            PurchaseKind::Miner
+                | PurchaseKind::Skimmer
+                | PurchaseKind::Fisherman
+                | PurchaseKind::Beachcomber
+                | PurchaseKind::Stonemason
+                | PurchaseKind::Boatman
+        ) {
             continue;
         }
         if workers.count == 0 {

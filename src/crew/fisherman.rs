@@ -175,8 +175,8 @@ fn spawn_fisherman(
             Layer(Z_CREW),
             Sprite {
                 image: shapes.humanoid.clone(),
-                color: colors::FISHERMAN_BODY,
-                custom_size: Some(Vec2::new(4.0, 6.0)),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(16.0, 9.0)),
                 ..default()
             },
             Transform::default(),

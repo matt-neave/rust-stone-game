@@ -17,15 +17,15 @@ const ROCK_BAND_LIGHT: [u8; 4] = [0x77, 0x85, 0x90, 0xff];
 const ROCK_BAND_MAIN: [u8; 4] = [0x77, 0x68, 0x71, 0xff];
 const ROCK_BAND_DARK: [u8; 4] = [0x56, 0x4b, 0x5a, 0xff];
 
-/// Light-band threshold, as a normalised projection onto the
-/// top-right light vector. A pixel above this is in the highlight
-/// band. Tuned so the highlight reads as a thin sliver on the
-/// top-right shoulder of every rock.
-const ROCK_LIGHT_THRESHOLD: f32 = 0.78;
-/// Dark-band threshold. Below this projection value the pixel is in
-/// the shadow band. Slightly larger area than the highlight so the
-/// shadow visually anchors the rock from the bottom-left.
-const ROCK_DARK_THRESHOLD: f32 = 0.30;
+/// Light-band threshold against the `rx · ry²` field. Tuned so the
+/// highlight reads as a thin curve hugging the rock's top shoulder
+/// after the sun-angle tilt — peak field on a circular rim is ~0.65,
+/// so this picks roughly the upper third of the lit side.
+const ROCK_LIGHT_THRESHOLD: f32 = 0.28;
+/// Dark-band threshold on the same field — pixels below this fall in
+/// the shadow band. With the sun closer to overhead the shadow leans
+/// along the bottom edge, anchoring the bottom-left corner.
+const ROCK_DARK_THRESHOLD: f32 = 0.05;
 
 /// Small rock shape variants. Every variant is a true circle or ellipse so
 /// the silhouettes all read as smooth pebbles — no rounded squares, no
@@ -77,6 +77,14 @@ pub struct Shapes {
     pub small_rock_round_large: Handle<Image>,
     pub small_rock_oval_h: Handle<Image>,
     pub small_rock_oval_v: Handle<Image>,
+    /// Masoned (polished) variants — same silhouettes baked with a
+    /// brightened band palette. Stonemasons swap a rock's sprite image
+    /// to one of these on completion.
+    pub small_rock_round_small_lit: Handle<Image>,
+    pub small_rock_round_lit: Handle<Image>,
+    pub small_rock_round_large_lit: Handle<Image>,
+    pub small_rock_oval_h_lit: Handle<Image>,
+    pub small_rock_oval_v_lit: Handle<Image>,
     /// Large rounded boulder body — irregular blob mask, same banding.
     pub big_rock: Handle<Image>,
     /// Soft elliptical shadow used beneath every rock. Single image,
@@ -108,9 +116,11 @@ pub struct Shapes {
     pub imprint_oval_v: Handle<Image>,
     /// 22×8 triangular roof for the foragers hut.
     pub hut_roof: Handle<Image>,
-    /// 4×6 humanoid silhouette used for workers and miner bodies.
+    /// 16×9 crab silhouette used for every crew role. Body, claws and legs
+    /// are baked white so the sprite's `color` field tints them per role;
+    /// the two eyes are baked black so they read as eyes against any tint.
     pub humanoid: Handle<Image>,
-    /// 4×6 walking-frame humanoid (alternate leg pose).
+    /// Walk-frame crab — legs shifted one column right of the stand pose.
     pub humanoid_walk: Handle<Image>,
     /// 4×4 pickaxe silhouette — diagonal handle with a head at the top.
     pub pickaxe: Handle<Image>,
@@ -132,6 +142,19 @@ impl Shapes {
             SmallRockShape::RoundLarge => self.small_rock_round_large.clone(),
             SmallRockShape::OvalH => self.small_rock_oval_h.clone(),
             SmallRockShape::OvalV => self.small_rock_oval_v.clone(),
+        }
+    }
+
+    /// Masoned variant of [`small_rock_image`] — the same silhouette
+    /// with a brighter baked palette, used after a stonemason polishes
+    /// the rock.
+    pub fn small_rock_image_lit(&self, shape: SmallRockShape) -> Handle<Image> {
+        match shape {
+            SmallRockShape::RoundSmall => self.small_rock_round_small_lit.clone(),
+            SmallRockShape::Round => self.small_rock_round_lit.clone(),
+            SmallRockShape::RoundLarge => self.small_rock_round_large_lit.clone(),
+            SmallRockShape::OvalH => self.small_rock_oval_h_lit.clone(),
+            SmallRockShape::OvalV => self.small_rock_oval_v_lit.clone(),
         }
     }
 
@@ -169,11 +192,22 @@ fn build_shapes(mut shapes: ResMut<Shapes>, mut images: ResMut<Assets<Image>>) {
     // All small-rock variants are pure circles or ellipses — no flat
     // sides. Bands are baked in with directional lighting (top-right
     // source) so every rock shares the same coherent shading.
-    shapes.small_rock_round_small = images.add(circle_image_banded(8));
-    shapes.small_rock_round = images.add(circle_image_banded(9));
-    shapes.small_rock_round_large = images.add(circle_image_banded(10));
-    shapes.small_rock_oval_h = images.add(ellipse_image_banded(11, 8));
-    shapes.small_rock_oval_v = images.add(ellipse_image_banded(8, 11));
+    shapes.small_rock_round_small = images.add(circle_image_banded(8, 1.0));
+    shapes.small_rock_round = images.add(circle_image_banded(9, 1.0));
+    shapes.small_rock_round_large = images.add(circle_image_banded(10, 1.0));
+    shapes.small_rock_oval_h = images.add(ellipse_image_banded(11, 8, 1.0));
+    shapes.small_rock_oval_v = images.add(ellipse_image_banded(8, 11, 1.0));
+
+    // Masoned (polished) variants — same silhouettes, brighter palette.
+    shapes.small_rock_round_small_lit = images.add(circle_image_banded(8, MASONED_BRIGHTNESS));
+    shapes.small_rock_round_lit = images.add(circle_image_banded(9, MASONED_BRIGHTNESS));
+    shapes.small_rock_round_large_lit = images.add(circle_image_banded(10, MASONED_BRIGHTNESS));
+    shapes.small_rock_oval_h_lit = images.add(ellipse_image_banded(11, 8, MASONED_BRIGHTNESS));
+    shapes.small_rock_oval_v_lit = images.add(ellipse_image_banded(8, 11, MASONED_BRIGHTNESS));
+
+    // (Big rock still uses the live `RockLitMaterial` shader so its
+    // highlight stays anchored to world top-right while it spins; the
+    // banded helper below takes the same brightness=1.0 default.)
 
     // Big rock — irregular boulder silhouette built from a few
     // overlapping circles. Wider than tall, with an asymmetric top
@@ -234,25 +268,10 @@ fn build_shapes(mut shapes: ResMut<Shapes>, mut images: ResMut<Assets<Image>>) {
         "...XXXXXXXXXXXXXXXX...",
     ]));
 
-    // Humanoid — 4×6 silhouette: head, shoulders, torso, legs. Same shape
-    // is reused for both workers and miners — colour distinguishes them.
-    shapes.humanoid = images.add(pattern_image(&[
-        ".XX.",
-        ".XX.",
-        "XXXX",
-        ".XX.",
-        ".XX.",
-        "X..X",
-    ]));
-    // Walk frame — same body, splayed legs.
-    shapes.humanoid_walk = images.add(pattern_image(&[
-        ".XX.",
-        ".XX.",
-        "XXXX",
-        ".XX.",
-        "X..X",
-        "X..X",
-    ]));
+    // Crab — fully-coloured pixel art. See `CRAB_STAND` / `CRAB_WALK` for
+    // the per-pixel matrices and `crab_image` for the colour mapping.
+    shapes.humanoid = images.add(crab_image(&CRAB_STAND));
+    shapes.humanoid_walk = images.add(crab_image(&CRAB_WALK));
 
     // Pickaxe — 4×4 with the head in the upper-right and a handle running
     // diagonally toward the lower-left.
@@ -305,6 +324,79 @@ fn build_shapes(mut shapes: ResMut<Shapes>, mut images: ResMut<Assets<Image>>) {
             (45.0, 8.0, 8.0),
         ],
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Crab sprite (replaces the old humanoid). Two 16×9 frames — `CRAB_STAND` is
+// the resting pose; `CRAB_WALK` shifts the legs one column to the right so the
+// crab visibly steps when alternated. Pixel codes:
+//   0 = transparent
+//   1 = body / claw-top  (CRAB_BODY)
+//   2 = claw-shadow / leg (CRAB_SHADOW)
+//   3 = eye               (CRAB_EYE)
+// Colour-coding lives in `crab_image`.
+pub const CRAB_W: usize = 16;
+pub const CRAB_H: usize = 9;
+pub type CrabPattern = [[u8; CRAB_W]; CRAB_H];
+
+const CRAB_BODY: [u8; 4] = [0xb0, 0x38, 0x38, 0xff];
+const CRAB_SHADOW: [u8; 4] = [0x6b, 0x24, 0x24, 0xff];
+const CRAB_EYE: [u8; 4] = [0x00, 0x00, 0x00, 0xff];
+
+#[rustfmt::skip]
+const CRAB_STAND: CrabPattern = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
+    [0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
+    [0,0,2,0,3,0,0,0,3,0,2,0,0,0,0,0],
+    [0,0,2,0,3,1,1,1,3,0,2,0,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,2,0,2,0,0,0,2,0,2,0,0,0,0,0],
+];
+
+#[rustfmt::skip]
+const CRAB_WALK: CrabPattern = [
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+    [0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
+    [0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0],
+    [0,0,2,0,3,0,0,0,3,0,2,0,0,0,0,0],
+    [0,0,2,0,3,1,1,1,3,0,2,0,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,1,1,1,1,1,1,1,0,0,0,0,0,0],
+    [0,0,0,2,0,2,0,0,0,2,0,2,0,0,0,0],
+];
+
+/// Bake a `CRAB_W × CRAB_H` colour image from a pixel-code matrix.
+pub fn crab_image(pattern: &CrabPattern) -> Image {
+    let mut data = vec![0u8; CRAB_W * CRAB_H * 4];
+    for (y, row) in pattern.iter().enumerate() {
+        for (x, &code) in row.iter().enumerate() {
+            let rgba = match code {
+                1 => CRAB_BODY,
+                2 => CRAB_SHADOW,
+                3 => CRAB_EYE,
+                _ => continue,
+            };
+            let idx = (y * CRAB_W + x) * 4;
+            data[idx..idx + 4].copy_from_slice(&rgba);
+        }
+    }
+    let mut image = Image::new(
+        Extent3d {
+            width: CRAB_W as u32,
+            height: CRAB_H as u32,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        data,
+        TextureFormat::Rgba8UnormSrgb,
+        RenderAssetUsages::default(),
+    );
+    image.sampler = ImageSampler::nearest();
+    image
 }
 
 /// Bake a white mask from a 2D character grid: `'.'` → transparent, anything
@@ -479,6 +571,11 @@ pub fn circle_image(diameter: u32) -> Image {
     image
 }
 
+/// Brightness multiplier baked into the masoned (polished) rock
+/// textures. Matches the old shader-uniform value `MASONED_BRIGHTNESS`
+/// in `crew::stonemason` so the visible "polish" lift is identical.
+pub const MASONED_BRIGHTNESS: f32 = 1.45;
+
 /// Pick which of the three rock bands a pixel falls into using a fixed
 /// top-right directional light. For each pixel we project its offset
 /// from the rock's center onto the light direction L = (1, -1)/√2
@@ -490,36 +587,46 @@ pub fn circle_image(diameter: u32) -> Image {
 /// thinnest sliver, the dark band slightly thicker (the shadow wraps
 /// further around the bottom-left), and the main mid-tone takes the
 /// rest of the body.
-fn rock_band_rgba(x: u32, y: u32, w: u32, h: u32) -> [u8; 4] {
-    const INV_SQRT2: f32 = 0.707_106_77;
-    let cx = w as f32 * 0.5;
-    let cy = h as f32 * 0.5;
-    let dx = x as f32 + 0.5 - cx;
-    let dy = y as f32 + 0.5 - cy;
-    // Dot with the light direction. dx grows as we move right (toward
-    // the light), -dy grows as we move up (also toward the light).
-    let proj = (dx - dy) * INV_SQRT2;
-    // Maximum projection magnitude over the bounding box's furthest
-    // corners — used to normalise into [0, 1] regardless of shape.
-    let max_proj = (w as f32 * 0.5 + h as f32 * 0.5) * INV_SQRT2;
-    let norm = if max_proj > 0.0 {
-        (proj / max_proj + 1.0) * 0.5
-    } else {
-        0.5
-    };
-    if norm > ROCK_LIGHT_THRESHOLD {
+///
+/// `brightness` multiplies each band's RGB channels (clamped at 255)
+/// so the banded helpers can bake a polished/lit variant without
+/// duplicating the geometry pass.
+fn rock_band_rgba(x: u32, y: u32, w: u32, h: u32, brightness: f32) -> [u8; 4] {
+    // Hyperbolic lighting field: brightness ∝ rx · ry², where (rx, ry)
+    // are normalised pixel coordinates measured from the rock's
+    // bottom-left corner (rx grows rightward, ry grows upward).
+    //
+    // The squared `ry` term tilts the sun upward: at the top-right
+    // corner the gradient is `(1, 2)`, so the lit direction sits at
+    // `atan(2) ≈ 63.4°` above horizontal — a high-angle sun closer to
+    // overhead than the 45° corner direction of plain `rx · ry`.
+    //
+    // Iso-bands belong to the `xy² = c` family — the band edges run
+    // nearly flat along the rock's top edge and steepen toward the
+    // bottom, keeping the "1/x parabola" feel rotated to match the
+    // higher sun.
+    let rx = (x as f32 + 0.5) / w as f32;
+    let ry = (h as f32 - 0.5 - y as f32) / h as f32;
+    let norm = (rx * ry * ry).clamp(0.0, 1.0);
+    let band = if norm > ROCK_LIGHT_THRESHOLD {
         ROCK_BAND_LIGHT
     } else if norm > ROCK_DARK_THRESHOLD {
         ROCK_BAND_MAIN
     } else {
         ROCK_BAND_DARK
+    };
+    if (brightness - 1.0).abs() < f32::EPSILON {
+        band
+    } else {
+        let scale = |c: u8| ((c as f32 * brightness).round().clamp(0.0, 255.0)) as u8;
+        [scale(band[0]), scale(band[1]), scale(band[2]), band[3]]
     }
 }
 
 /// Banded variant of [`circle_image`] — same silhouette, but each inside
 /// pixel is filled with one of the three rock-band colors via the
 /// directional lighting model.
-pub fn circle_image_banded(diameter: u32) -> Image {
+pub fn circle_image_banded(diameter: u32, brightness: f32) -> Image {
     let pixel_count = (diameter * diameter) as usize;
     let mut data = vec![0u8; pixel_count * 4];
     let center = diameter as f32 * 0.5 - 0.5;
@@ -530,7 +637,7 @@ pub fn circle_image_banded(diameter: u32) -> Image {
             let dx = x as f32 - center;
             let dy = y as f32 - center;
             if dx * dx + dy * dy <= r_sq {
-                let rgba = rock_band_rgba(x, y, diameter, diameter);
+                let rgba = rock_band_rgba(x, y, diameter, diameter, brightness);
                 let idx = ((y * diameter + x) * 4) as usize;
                 data[idx..idx + 4].copy_from_slice(&rgba);
             }
@@ -552,7 +659,7 @@ pub fn circle_image_banded(diameter: u32) -> Image {
 }
 
 /// Banded variant of [`ellipse_image`].
-pub fn ellipse_image_banded(w: u32, h: u32) -> Image {
+pub fn ellipse_image_banded(w: u32, h: u32, brightness: f32) -> Image {
     let pixel_count = (w * h) as usize;
     let mut data = vec![0u8; pixel_count * 4];
     let cx = w as f32 * 0.5 - 0.5;
@@ -564,7 +671,7 @@ pub fn ellipse_image_banded(w: u32, h: u32) -> Image {
             let dx = (x as f32 - cx) / rx;
             let dy = (y as f32 - cy) / ry;
             if dx * dx + dy * dy <= 1.0 {
-                let rgba = rock_band_rgba(x, y, w, h);
+                let rgba = rock_band_rgba(x, y, w, h, brightness);
                 let idx = ((y * w + x) * 4) as usize;
                 data[idx..idx + 4].copy_from_slice(&rgba);
             }
@@ -599,7 +706,7 @@ pub fn boulder_image_banded(w: u32, h: u32, blobs: &[(f32, f32, f32)]) -> Image 
                 dx * dx + dy * dy <= r * r
             });
             if inside {
-                let rgba = rock_band_rgba(x, y, w, h);
+                let rgba = rock_band_rgba(x, y, w, h, 1.0);
                 let idx = ((y * w + x) * 4) as usize;
                 data[idx..idx + 4].copy_from_slice(&rgba);
             }

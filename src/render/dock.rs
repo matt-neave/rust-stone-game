@@ -52,6 +52,7 @@ impl DisplayMode {
         }
     }
 
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     fn next(self) -> Self {
         match self {
             DisplayMode::Windowed => DisplayMode::Docked,
@@ -107,6 +108,30 @@ impl Plugin for DockPlugin {
                     apply_docked_view_crop.after(apply_display_mode).before(SyncSet::Transforms),
                 ),
             );
+        // On wasm the browser owns the canvas size + fullscreen — having
+        // winit resize the canvas through `Window::resolution.set` /
+        // `WindowMode::BorderlessFullscreen` leaves stale CSS sizing
+        // when cycling back to windowed, which manifests as the canvas
+        // visibly offset from the page. Hide the dock-cycle button
+        // entirely on web; the mute button stays.
+        #[cfg(target_arch = "wasm32")]
+        app.add_systems(Startup, hide_dock_button_on_wasm.after(spawn_dock_button));
+    }
+}
+
+/// On wasm only — make the dock button + label invisible and skip its
+/// hover/click logic so we never trigger a window-mode change that the
+/// browser can't cleanly undo.
+#[cfg(target_arch = "wasm32")]
+fn hide_dock_button_on_wasm(
+    mut btn: Query<&mut Visibility, (With<DockButton>, Without<DockButtonLabel>)>,
+    mut label: Query<&mut Visibility, (With<DockButtonLabel>, Without<DockButton>)>,
+) {
+    for mut v in &mut btn {
+        *v = Visibility::Hidden;
+    }
+    for mut v in &mut label {
+        *v = Visibility::Hidden;
     }
 }
 
@@ -321,6 +346,7 @@ pub struct MuteButtonHover(pub bool);
 /// frame; cycles `DisplayMode` or toggles `Muted` on left-click
 /// within the respective bounds.
 #[allow(clippy::too_many_arguments)]
+#[cfg_attr(target_arch = "wasm32", allow(unused_mut, unused_variables))]
 fn handle_dock_input(
     windows: Query<&Window, With<PrimaryWindow>>,
     mouse: Res<ButtonInput<MouseButton>>,
@@ -356,9 +382,15 @@ fn handle_dock_input(
         mute_hover.0 = on_mute;
     }
     if mouse.just_pressed(MouseButton::Left) {
+        // The dock button is hidden on wasm (see `DockPlugin::build`)
+        // because cycling window modes corrupts the canvas styling in
+        // browsers. Don't react to clicks in its bounds either, so a
+        // ghost click in the corner can't bypass the visual hide.
+        #[cfg(not(target_arch = "wasm32"))]
         if on_dock {
             *mode = mode.next();
-        } else if on_mute {
+        }
+        if on_mute {
             muted.0 = !muted.0;
         }
     }

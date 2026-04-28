@@ -140,11 +140,29 @@ fn handle_fish_purchase(
 }
 
 fn fish_spawn_pos() -> Vec2 {
-    // Spawn anywhere in the ocean, with a healthy inshore bias so new
-    // fish appear within rescue range of the rocks more often than
-    // not.
+    // Spawn at the pier's seaward end so a freshly-bought bucket of
+    // fish visibly streams *out* of the pier into the ocean. Tiny
+    // jitter so a 10-fish bucket doesn't stack on a single pixel.
     let mut rng = rand::thread_rng();
-    pick_fish_target(&mut rng)
+    Vec2::new(
+        PIER_X + PIER_W * 0.45 + rng.gen_range(-2.0..2.0),
+        PIER_Y + rng.gen_range(-2.0..3.0),
+    )
+}
+
+/// Pick a fish body color — slight blue/teal variations around the
+/// base fisherman body shade so a school of fish doesn't look like
+/// a row of clones.
+fn pick_fish_color<R: Rng + ?Sized>(rng: &mut R) -> Color {
+    let palette = [
+        Color::srgb(0.165, 0.416, 0.502), // base fisherman teal (#2a6a80)
+        Color::srgb(0.110, 0.360, 0.600), // bluer
+        Color::srgb(0.220, 0.500, 0.560), // brighter teal
+        Color::srgb(0.180, 0.310, 0.560), // deep blue
+        Color::srgb(0.260, 0.560, 0.660), // pale aqua
+        Color::srgb(0.130, 0.470, 0.520), // muted ocean
+    ];
+    palette[rng.gen_range(0..palette.len())]
 }
 
 /// Sample a fish wander target inside the ocean. With probability
@@ -165,17 +183,26 @@ fn pick_fish_target<R: Rng + ?Sized>(rng: &mut R) -> Vec2 {
 
 fn spawn_fish_at(commands: &mut Commands, pos: Vec2) {
     let mut rng = rand::thread_rng();
+    // Each fish departs the pier IMMEDIATELY toward a random ocean
+    // target — visually they "scatter" from the pier rather than
+    // sitting next to it for an idle beat first.
+    let target = pick_fish_target(&mut rng);
+    let dist = pos.distance(target).max(1.0);
+    let speed: f32 = rng.gen_range(8.0..16.0);
+    let color = pick_fish_color(&mut rng);
     commands.spawn((
         Fish {
-            state: FishState::Idle {
+            state: FishState::Swimming {
+                from: pos,
+                to: target,
                 time: 0.0,
-                dur: rng.gen_range(0.4..1.0),
+                dur: dist / speed,
             },
             flap_accum: 0.0,
         },
         Pos(pos),
         Layer(Z_FISH),
-        Sprite::from_color(colors::FISHERMAN_BODY, Vec2::new(3.0, 2.0)),
+        Sprite::from_color(color, Vec2::new(3.0, 2.0)),
         Transform::default(),
     ));
 }

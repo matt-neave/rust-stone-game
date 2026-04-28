@@ -23,9 +23,7 @@ use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos, ZHeight};
 use crate::core::constants::*;
-use crate::crew::skimmer::effective_bounce_chance;
 use crate::currency::Skims;
-use crate::economy::SkimUpgrades;
 use crate::effects::floating_text::SpawnFloatingTextEvent;
 use crate::core::input::ClickEvent;
 use crate::effects::particles::SpawnParticleBurstEvent;
@@ -33,7 +31,6 @@ use crate::effects::ripple::SpawnRippleEvent;
 use crate::rocks::imprint::SpawnImprintEvent;
 use crate::rocks::shadow::spawn_rock_shadow;
 use crate::render::shapes::{Shapes, SmallRockShape};
-use crate::render::{RockLitMaterial, RockLitParams, RockQuad};
 use crate::structures::pier::Fish;
 
 #[derive(Component)]
@@ -82,6 +79,12 @@ pub enum SmallRockPhase {
         bounce_interval: f32,
         arc_height: f32,
     },
+    /// The rock has sunk into the ocean and is sitting on the seabed.
+    /// Created instead of despawning when a Port exists — boatmen
+    /// pick these up and ferry them back to shore. Hidden from view
+    /// (Visibility::Hidden), but the entity stays alive so the
+    /// boatman crew has a queue of work to do.
+    Sunken { pos: Vec2 },
 }
 
 /// Per-bounce probability that a skimming rock bounces (vs sinks)
@@ -96,6 +99,14 @@ pub struct BounceChance(pub f32);
 /// fish at least once. Each rock can only be fish-skimmed once.
 #[derive(Component, Clone, Copy)]
 pub struct FishSkimmed;
+
+/// Sharpened by a stonemason — the next `remaining` bounce checks
+/// (toss landing or skim-bounce) succeed unconditionally instead of
+/// rolling against `BounceChance`. Decremented each guaranteed bounce.
+#[derive(Component, Clone, Copy)]
+pub struct Masoned {
+    pub remaining: u8,
+}
 
 /// Build a fresh `Tossing` phase from a launch position, picking the
 /// water-edge target + flight duration + skim speed the same way
@@ -158,20 +169,15 @@ fn spawn_small_rocks(
     mut commands: Commands,
     mut events: MessageReader<SpawnSmallRockEvent>,
     shapes: Res<Shapes>,
-    rock_quad: Res<RockQuad>,
-    mut materials: ResMut<Assets<RockLitMaterial>>,
 ) {
     let mut rng = rand::thread_rng();
     for ev in events.read() {
-        // Shape is the only per-rock variation now — banding is
-        // computed live by the rock shader (`shaders/rock_lit.wgsl`)
-        // from a fixed top-right light direction.
+        // Banding is baked statically into the small-rock textures
+        // (see `circle_image_banded` / `ellipse_image_banded`) — no
+        // per-rock shader needed. Stonemasons swap the sprite image to
+        // the masoned variant on polish.
         let shape = SmallRockShape::ALL[rng.gen_range(0..SmallRockShape::ALL.len())];
         let size = shape.size();
-        let material = materials.add(RockLitMaterial {
-            silhouette: shapes.small_rock_image(shape),
-            params: RockLitParams::default(),
-        });
         let rock_e = commands
             .spawn((
                 SmallRock,
@@ -185,9 +191,12 @@ fn spawn_small_rocks(
                 Pos(ev.from),
                 ZHeight(0.0),
                 Layer(Z_ROCK),
-                Mesh2d(rock_quad.0.clone()),
-                MeshMaterial2d(material),
-                Transform::from_scale(Vec3::new(size.x, size.y, 1.0)),
+                Sprite {
+                    image: shapes.small_rock_image(shape),
+                    custom_size: Some(size),
+                    ..default()
+                },
+                Transform::default(),
             ))
             .id();
         spawn_rock_shadow(&mut commands, &shapes, rock_e, ev.from, size);
@@ -284,7 +293,6 @@ fn handle_clicks(
     mut commands: Commands,
     mut events: MessageReader<ClickEvent>,
     mut q: Query<(Entity, &mut SmallRockPhase, &Pos, &RockShape)>,
-    upgrades: Res<SkimUpgrades>,
     mut sound: MessageWriter<PlaySoundEvent>,
     mut imprint: MessageWriter<SpawnImprintEvent>,
 ) {
@@ -337,8 +345,10 @@ fn handle_clicks(
             duration,
             skim_speed,
         };
-        let chance = effective_bounce_chance(PLAYER_BOUNCE_CHANCE, &upgrades);
-        commands.entity(target).insert(BounceChance(chance));
+        // Player-thrown rocks always use the base 50% bounce chance —
+        // Skim Up upgrades only buff the skimmer crew, leaving the
+        // cursor's throw on a fixed unbuffed dice roll.
+        commands.entity(target).insert(BounceChance(PLAYER_BOUNCE_CHANCE));
         sound.write(PlaySoundEvent {
             kind: SoundKind::Click,
             pitch: 1.15,
@@ -360,11 +370,13 @@ fn tick_tossing(
             &mut Transform,
             Option<&BounceChance>,
             Option<&FishSkimmed>,
+            Option<&mut Masoned>,
         ),
         With<SmallRock>,
     >,
     fish_q: Query<(Entity, &Pos), (With<Fish>, Without<SmallRock>)>,
     mut fishes: ResMut<crate::economy::Fishes>,
+    port: Res<crate::economy::Port>,
     mut skims: ResMut<Skims>,
     mut burst: MessageWriter<SpawnParticleBurstEvent>,
     mut ripple: MessageWriter<SpawnRippleEvent>,
@@ -373,7 +385,7 @@ fn tick_tossing(
 ) {
     let dt = time.delta_secs();
     let mut rng = rand::thread_rng();
-    for (e, mut phase, mut pos, mut zh, mut tf, bounce, fish_skimmed) in &mut q {
+    for (e, mut phase, mut pos, mut zh, mut tf, bounce, fish_skimmed, mut masoned) in &mut q {
         let bounce_chance = bounce.map(|b| b.0).unwrap_or(PLAYER_BOUNCE_CHANCE);
         let SmallRockPhase::Tossing {
             from,
@@ -417,6 +429,17 @@ fn tick_tossing(
         zh.0 = 0.0;
         tf.rotation = Quat::IDENTITY;
         let mut sink: bool = rng.gen_bool((1.0 - bounce_chance).clamp(0.0, 1.0) as f64);
+        // Masoned rocks burn a guaranteed-bounce charge before any
+        // dice roll matters. Only consume the charge when the roll
+        // would have failed — a free success that the player paid for.
+        if sink {
+            if let Some(m) = masoned.as_deref_mut() {
+                if m.remaining > 0 {
+                    m.remaining -= 1;
+                    sink = false;
+                }
+            }
+        }
         // Fish rescue — only on the first sink, never repeats. The
         // rescuing fish is consumed (despawned) since fish are now
         // one-shot bucket purchases.
@@ -456,7 +479,14 @@ fn tick_tossing(
                 pitch: 1.0,
                 volume: 0.45,
             });
-            commands.entity(e).despawn();
+            if port.owned {
+                pos.0 = to;
+                zh.0 = 0.0;
+                *phase = SmallRockPhase::Sunken { pos: to };
+                commands.entity(e).insert(Visibility::Hidden);
+            } else {
+                commands.entity(e).despawn();
+            }
             continue;
         }
 
@@ -518,11 +548,13 @@ fn tick_skimming(
             &mut Transform,
             Option<&BounceChance>,
             Option<&FishSkimmed>,
+            Option<&mut Masoned>,
         ),
         With<SmallRock>,
     >,
     fish_q: Query<(Entity, &Pos), (With<Fish>, Without<SmallRock>)>,
     mut fishes: ResMut<crate::economy::Fishes>,
+    port: Res<crate::economy::Port>,
     mut skims: ResMut<Skims>,
     mut burst: MessageWriter<SpawnParticleBurstEvent>,
     mut ripple: MessageWriter<SpawnRippleEvent>,
@@ -531,7 +563,7 @@ fn tick_skimming(
 ) {
     let dt = time.delta_secs();
     let mut rng = rand::thread_rng();
-    for (e, mut phase, mut pos, mut zh, mut tf, bounce, fish_skimmed) in &mut q {
+    for (e, mut phase, mut pos, mut zh, mut tf, bounce, fish_skimmed, mut masoned) in &mut q {
         let bounce_chance = bounce.map(|b| b.0).unwrap_or(PLAYER_BOUNCE_CHANCE);
         let SmallRockPhase::Skimming {
             speed,
@@ -573,6 +605,15 @@ fn tick_skimming(
             let bounce_pos = Vec2::new(pos.0.x, base_y);
             // Bounce vs sink — chance is per-thrower (player vs skimmer).
             let mut sink: bool = rng.gen_bool((1.0 - bounce_chance).clamp(0.0, 1.0) as f64);
+            // Masoned charges burn before any rescue logic.
+            if sink {
+                if let Some(m) = masoned.as_deref_mut() {
+                    if m.remaining > 0 {
+                        m.remaining -= 1;
+                        sink = false;
+                    }
+                }
+            }
             // Fish rescue — first failed bounce only, then never again.
             // The rescuing fish is consumed.
             if sink && fish_skimmed.is_none() {
@@ -614,7 +655,14 @@ fn tick_skimming(
                     pitch: 1.0,
                     volume: 0.45,
                 });
-                commands.entity(e).despawn();
+                if port.owned {
+                    pos.0 = bounce_pos;
+                    zh.0 = 0.0;
+                    *phase = SmallRockPhase::Sunken { pos: bounce_pos };
+                    commands.entity(e).insert(Visibility::Hidden);
+                } else {
+                    commands.entity(e).despawn();
+                }
                 continue;
             }
 

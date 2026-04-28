@@ -18,7 +18,7 @@ use crate::core::constants::{
     BIG_ROCK_X, BIG_ROCK_Y, MINER_HUT_TO_SPOT_SPEED, MINER_PICKAXE_FLIGHT, MINER_REST,
     MINER_THROW_WIND_UP, MINER_WALK_SPEED, Z_CREW, Z_PICKAXE,
 };
-use crate::economy::{Miners, PurchaseKind};
+use crate::economy::{MinerUpgrades, Miners, PurchaseEvent, PurchaseKind};
 use crate::render::shapes::Shapes;
 use crate::rocks::big::RockHitEvent;
 
@@ -100,11 +100,27 @@ impl Plugin for MinerPlugin {
             Update,
             (
                 handle_miner_spawn,
+                handle_miner_upgrade,
                 tick_miners,
                 update_pickaxes,
                 tick_walk_animation::<Miner>,
             ),
         );
+    }
+}
+
+/// Bump `MinerUpgrades.damage_level` whenever the player buys the
+/// pickaxe-damage upgrade from the miner-hut panel. In-flight
+/// pickaxes don't retroactively gain damage; the new level applies
+/// to the next throw onward.
+fn handle_miner_upgrade(
+    mut events: MessageReader<PurchaseEvent>,
+    mut upgrades: ResMut<MinerUpgrades>,
+) {
+    for ev in events.read() {
+        if ev.kind == PurchaseKind::MinerDamage {
+            upgrades.damage_level = upgrades.damage_level.saturating_add(1);
+        }
     }
 }
 
@@ -151,8 +167,8 @@ fn spawn_miner(
             Layer(Z_CREW),
             Sprite {
                 image: shapes.humanoid.clone(),
-                color: colors::MINER_BODY,
-                custom_size: Some(Vec2::new(4.0, 6.0)),
+                color: Color::WHITE,
+                custom_size: Some(Vec2::new(16.0, 9.0)),
                 ..default()
             },
             Transform::default(),
@@ -175,12 +191,14 @@ fn spawn_miner(
 
 fn tick_miners(
     time: Res<Time>,
+    upgrades: Res<MinerUpgrades>,
     mut q: Query<(&mut Miner, &mut Pos)>,
     mut hits: MessageWriter<RockHitEvent>,
     mut sound: MessageWriter<PlaySoundEvent>,
 ) {
     let dt = time.delta_secs();
     let mut rng = rand::thread_rng();
+    let damage = MINER_PICKAXE_DAMAGE + upgrades.damage_level;
     for (mut miner, mut pos) in &mut q {
         let next: Option<MinerState> = match &mut miner.state {
             MinerState::WalkingFromHut { from, to, time: t, dur } => {
@@ -228,7 +246,7 @@ fn tick_miners(
                     // and any small-rock spawning that follows.
                     hits.write(RockHitEvent {
                         pos: *to,
-                        damage: MINER_PICKAXE_DAMAGE,
+                        damage,
                     });
                     let from_pos = pos.0;
                     let to_pos = *to;

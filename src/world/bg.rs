@@ -18,13 +18,19 @@ use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::*;
 
-/// Number of random light-tinted sand patches. The sprinkle is dense
-/// enough that the beach reads as granular, with light dominating so it
-/// matches the bright reference look.
-const SAND_LIGHT_PATCHES: u32 = 140;
-/// Number of random dark-tinted sand patches — fewer and smaller than
-/// the light ones so they read as scattered grit rather than shadow.
-const SAND_DARK_PATCHES: u32 = 65;
+/// Number of light-tinted sand grains scattered over the base sand.
+/// Each grain is a single 1×1 pixel placed on the integer grid so the
+/// sprinkle reads as natural granular noise rather than sub-pixel
+/// blocks. Bumped from the old fractional-rect count since each entry
+/// now covers far less area.
+const SAND_LIGHT_GRAINS: u32 = 900;
+/// Number of dark-tinted sand grains — sparser so they read as
+/// scattered grit rather than shadow.
+const SAND_DARK_GRAINS: u32 = 380;
+/// Per-grain probability of an extra 1-px neighbour stuck on a random
+/// side. Adds the occasional 2-px cluster for size variation without
+/// the regularity of fixed-size rectangles.
+const SAND_GRAIN_CLUSTER_CHANCE: f64 = 0.18;
 
 /// Shore→deep band palette. Index 0 is closest to the sand, index 4 is the
 /// deepest water at the right edge.
@@ -80,40 +86,39 @@ fn spawn_bg(mut commands: Commands) {
         Transform::default(),
     ));
 
-    // Sand-side texture — a sprinkle of small random patches in the
-    // lighter and darker sand tones over the primary fill. Stops short
-    // of the wet-sand strip so the shoreline stays clean.
+    // Sand-side texture — individual 1-px grains scattered on the
+    // integer grid. Each grain is placed at an integer (x, y) so it
+    // lands cleanly on a single output pixel after upscaling, giving
+    // the beach a true granular look instead of the soft-edged fractional
+    // rectangles the old version produced. A small fraction of grains
+    // get an extra 1-px neighbour for occasional 2-px clusters.
     let mut rng = rand::thread_rng();
-    let x_min = 2.0;
-    let x_max = SHORELINE_X - 8.0;
-    let y_min = 2.0;
-    let y_max = INTERNAL_HEIGHT - 2.0;
+    let x_min = 2i32;
+    let x_max = (SHORELINE_X as i32) - 8;
+    let y_min = 2i32;
+    let y_max = (INTERNAL_HEIGHT as i32) - 2;
     for (count, color) in [
-        (SAND_LIGHT_PATCHES, colors::SAND_LIGHT),
-        (SAND_DARK_PATCHES, colors::SAND_DARK),
+        (SAND_LIGHT_GRAINS, colors::SAND_LIGHT),
+        (SAND_DARK_GRAINS, colors::SAND_DARK),
     ] {
         for _ in 0..count {
-            let cx: f32 = rng.gen_range(x_min..x_max);
-            let cy: f32 = rng.gen_range(y_min..y_max);
-            // Most patches are 1-2 px specks; occasional 3 px ones give
-            // a bit of size variation without the patches reading as
-            // chunky tiles.
-            let w: f32 = if rng.gen_bool(0.7) {
-                rng.gen_range(1.0..2.5)
-            } else {
-                rng.gen_range(2.5..3.5)
-            };
-            let h: f32 = if rng.gen_bool(0.7) {
-                rng.gen_range(1.0..2.5)
-            } else {
-                rng.gen_range(2.5..3.5)
-            };
-            commands.spawn((
-                Pos(Vec2::new(cx, cy)),
-                Layer(Z_BG_DETAIL),
-                Sprite::from_color(color, Vec2::new(w, h)),
-                Transform::default(),
-            ));
+            let gx = rng.gen_range(x_min..x_max);
+            let gy = rng.gen_range(y_min..y_max);
+            spawn_grain(&mut commands, gx, gy, color);
+            if rng.gen_bool(SAND_GRAIN_CLUSTER_CHANCE) {
+                // Stick one neighbour on a random side. Using small
+                // 2-cluster fragments rather than fixed shapes keeps
+                // the noise irregular at every scale.
+                let (ox, oy) = match rng.gen_range(0..4) {
+                    0 => (1, 0),
+                    1 => (-1, 0),
+                    2 => (0, 1),
+                    _ => (0, -1),
+                };
+                let nx = (gx + ox).clamp(x_min, x_max - 1);
+                let ny = (gy + oy).clamp(y_min, y_max - 1);
+                spawn_grain(&mut commands, nx, ny, color);
+            }
         }
     }
 
@@ -126,6 +131,18 @@ fn spawn_bg(mut commands: Commands) {
             Color::srgba(0.0, 0.0, 0.0, 0.15),
             Vec2::new(INTERNAL_WIDTH, INTERNAL_HEIGHT),
         ),
+        Transform::default(),
+    ));
+}
+
+/// Spawn a single 1×1 sand grain at integer spec coordinates. Centred
+/// on `(x + 0.5, y + 0.5)` so the sprite snaps to a single output
+/// pixel after the upscale step.
+fn spawn_grain(commands: &mut Commands, x: i32, y: i32, color: Color) {
+    commands.spawn((
+        Pos(Vec2::new(x as f32 + 0.5, y as f32 + 0.5)),
+        Layer(Z_BG_DETAIL),
+        Sprite::from_color(color, Vec2::new(1.0, 1.0)),
         Transform::default(),
     ));
 }

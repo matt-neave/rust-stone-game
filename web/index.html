@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>rust-stones</title>
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        background: #11151b;
+        height: 100%;
+        overflow: hidden;
+        font-family: ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+        color: #dadada;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      /* Bevy's winit canvas — pixelated keeps the upscaled spec art crisp. */
+      canvas {
+        image-rendering: pixelated;
+        image-rendering: crisp-edges;
+        outline: none;
+      }
+      #start {
+        cursor: pointer;
+        padding: 20px 32px;
+        border: 1px solid #555;
+        background: #1c2330;
+        font-size: 18px;
+        letter-spacing: 0.04em;
+        user-select: none;
+      }
+      #start:hover { background: #243042; }
+      #err {
+        color: #f88;
+        font: 14px ui-monospace, monospace;
+        padding: 1em;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="start">Click to start</div>
+    <script type="module">
+      // Defer Bevy's startup until a real user click. Browsers won't
+      // resume an AudioContext created before any user gesture, so if
+      // we let Bevy boot on page-load every audio sink would be silent
+      // forever — even after later clicks. Booting inside the click
+      // handler means the AudioContext Bevy creates is unlocked at
+      // birth and audio Just Works.
+      const startBtn = document.getElementById("start");
+      startBtn.addEventListener("click", async () => {
+        startBtn.remove();
+        try {
+          const { default: init } = await import("./rust-stones.js");
+          await init();
+        } catch (e) {
+          const pre = document.createElement("pre");
+          pre.id = "err";
+          pre.textContent = e && e.stack ? e.stack : String(e);
+          document.body.appendChild(pre);
+        }
+      }, { once: true });
+    </script>
+  </body>
+</html>

@@ -16,9 +16,12 @@ struct RockLitParams {
     // counter-clockwise positive). The shader inverse-rotates by
     // this to map UV space back into world space.
     rotation: f32,
+    // Multiplier on the band color. 1.0 is default; masoned rocks
+    // (sharpened by a stonemason) are lighter — driven from the
+    // `Masoned` component on the Rust side.
+    brightness: f32,
     _pad0: f32,
     _pad1: f32,
-    _pad2: f32,
 };
 
 @group(2) @binding(0) var rock_tex: texture_2d<f32>;
@@ -89,5 +92,6 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
         color = BAND_DARK;
     }
 
+    color = clamp(color * params.brightness, vec3<f32>(0.0), vec3<f32>(1.0));
     return vec4<f32>(color, mask.a);
 }

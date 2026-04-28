@@ -31,8 +31,9 @@ use crate::render::{UiText, UI_LAYER};
 use super::layout::*;
 use super::{
     ButtonCost, ButtonCount, ButtonLabel, DetailBody, DetailHeader, PanelChromePart, PanelKind,
-    PanelTag, PurchaseButton, PurchaseKind, CAVE_PANEL_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS,
-    HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, PIER_PANEL_KINDS,
+    PanelTag, PurchaseButton, PurchaseKind, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS,
+    HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS,
+    PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 pub(super) fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>) {
@@ -99,6 +100,30 @@ pub(super) fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>) {
     spawn_panel(
         &mut commands,
         &assets,
+        PanelKind::HutBeachcomber,
+        "COMBERS  HUT",
+        hut_beachcomber_panel_pos(),
+        hut_beachcomber_panel_size(),
+        hut_beachcomber_detail_pos(),
+        hut_beachcomber_detail_size(),
+        HUT_BEACHCOMBER_KINDS,
+        &hut_beachcomber_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
+        PanelKind::HutStonemason,
+        "MASONS  HUT",
+        hut_stonemason_panel_pos(),
+        hut_stonemason_panel_size(),
+        hut_stonemason_detail_pos(),
+        hut_stonemason_detail_size(),
+        HUT_STONEMASON_KINDS,
+        &hut_stonemason_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
         PanelKind::Pier,
         "PIER",
         pier_panel_pos(),
@@ -107,6 +132,18 @@ pub(super) fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>) {
         pier_detail_size(),
         PIER_PANEL_KINDS,
         &pier_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
+        PanelKind::Port,
+        "PORT",
+        port_panel_pos(),
+        port_panel_size(),
+        port_detail_pos(),
+        port_detail_size(),
+        PORT_PANEL_KINDS,
+        &port_buy_row_y,
     );
 }
 
@@ -219,8 +256,14 @@ fn spawn_main_panel_frame(commands: &mut Commands, tag: PanelKind, pos: Vec2, si
         | PanelKind::Hut
         | PanelKind::HutMiner
         | PanelKind::HutSkimmer
-        | PanelKind::HutFisher => spawn_pointer_west(commands, tag, pos, half),
+        | PanelKind::HutFisher
+        | PanelKind::HutBeachcomber
+        | PanelKind::HutStonemason => spawn_pointer_west(commands, tag, pos, half),
+        // Pier panel sits below its structure; arrow points up
+        // toward the pier from the panel's top edge.
         PanelKind::Pier => spawn_pointer_up(commands, tag, pos, half),
+        // Port panel sits above its structure; arrow points down.
+        PanelKind::Port => spawn_pointer_down(commands, tag, pos, half),
     }
 }
 
@@ -251,7 +294,6 @@ fn spawn_detail_panel_frame(
     ));
 }
 
-#[allow(dead_code)]
 fn spawn_pointer_down(commands: &mut Commands, tag: PanelKind, pos: Vec2, half: Vec2) {
     let cx = pos.x;
     let bottom_y = pos.y + half.y + PANEL_BORDER_W;

@@ -7,13 +7,14 @@
 use bevy::prelude::*;
 
 use crate::core::constants::{
-    CAVE_W, CAVE_X, CAVE_Y, HUT_FISHER_X, HUT_FISHER_Y, HUT_MINER_X, HUT_MINER_Y, HUT_ROOF_W,
-    HUT_SKIMMER_X, HUT_SKIMMER_Y, HUT_X, HUT_Y, PIER_X, PIER_Y,
+    CAVE_W, CAVE_X, CAVE_Y, HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y, HUT_FISHER_X, HUT_FISHER_Y,
+    HUT_MINER_X, HUT_MINER_Y, HUT_ROOF_W, HUT_SKIMMER_X, HUT_SKIMMER_Y, HUT_STONEMASON_X,
+    HUT_STONEMASON_Y, HUT_X, HUT_Y, PIER_X, PIER_Y, PORT_H, PORT_W, PORT_X, PORT_Y,
 };
 
 use super::{
-    CAVE_PANEL_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS,
-    PIER_PANEL_KINDS,
+    CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
+    HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // ---------------------------------------------------------------------------
@@ -263,6 +264,52 @@ pub fn hut_fisher_building_rects() -> [(Vec2, Vec2); 1] { hut_building_rects_fro
 pub fn hut_fisher_panel_rects() -> [(Vec2, Vec2); 2] { hut_panel_rects_from(&hut_fisher_geo()) }
 pub fn hut_fisher_buy_row_y(index: usize) -> f32 { hut_buy_row_y_from(&hut_fisher_geo(), index) }
 
+// --- Beachcomber hut --------------------------------------------------------
+
+fn hut_beachcomber_geo() -> HutPanelGeo {
+    hut_geo(
+        Vec2::new(HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y),
+        HUT_BEACHCOMBER_KINDS.len(),
+    )
+}
+
+pub fn hut_beachcomber_panel_pos() -> Vec2 { hut_beachcomber_geo().panel_pos }
+pub fn hut_beachcomber_panel_size() -> Vec2 { hut_beachcomber_geo().panel_size }
+pub fn hut_beachcomber_detail_pos() -> Vec2 { hut_beachcomber_geo().detail_pos }
+pub fn hut_beachcomber_detail_size() -> Vec2 { hut_beachcomber_geo().detail_size }
+pub fn hut_beachcomber_building_rects() -> [(Vec2, Vec2); 1] {
+    hut_building_rects_from(&hut_beachcomber_geo())
+}
+pub fn hut_beachcomber_panel_rects() -> [(Vec2, Vec2); 2] {
+    hut_panel_rects_from(&hut_beachcomber_geo())
+}
+pub fn hut_beachcomber_buy_row_y(index: usize) -> f32 {
+    hut_buy_row_y_from(&hut_beachcomber_geo(), index)
+}
+
+// --- Stonemason hut ---------------------------------------------------------
+
+fn hut_stonemason_geo() -> HutPanelGeo {
+    hut_geo(
+        Vec2::new(HUT_STONEMASON_X, HUT_STONEMASON_Y),
+        HUT_STONEMASON_KINDS.len(),
+    )
+}
+
+pub fn hut_stonemason_panel_pos() -> Vec2 { hut_stonemason_geo().panel_pos }
+pub fn hut_stonemason_panel_size() -> Vec2 { hut_stonemason_geo().panel_size }
+pub fn hut_stonemason_detail_pos() -> Vec2 { hut_stonemason_geo().detail_pos }
+pub fn hut_stonemason_detail_size() -> Vec2 { hut_stonemason_geo().detail_size }
+pub fn hut_stonemason_building_rects() -> [(Vec2, Vec2); 1] {
+    hut_building_rects_from(&hut_stonemason_geo())
+}
+pub fn hut_stonemason_panel_rects() -> [(Vec2, Vec2); 2] {
+    hut_panel_rects_from(&hut_stonemason_geo())
+}
+pub fn hut_stonemason_buy_row_y(index: usize) -> f32 {
+    hut_buy_row_y_from(&hut_stonemason_geo(), index)
+}
+
 // ---------------------------------------------------------------------------
 // Pier panel — sits below the pier on the water
 // ---------------------------------------------------------------------------
@@ -325,6 +372,65 @@ pub fn pier_panel_rects() -> [(Vec2, Vec2); 2] {
     [
         panel_rect(pier_panel_pos(), pier_panel_size()),
         panel_rect(pier_detail_pos(), pier_detail_size()),
+    ]
+}
+
+// ---------------------------------------------------------------------------
+// Port panel — sits above the port, mirroring the pier's panel-up layout
+// ---------------------------------------------------------------------------
+
+pub const PORT_PANEL_W: f32 = 80.0;
+pub const PORT_DETAIL_W: f32 = 100.0;
+pub const PORT_DETAIL_GAP: f32 = 4.0;
+
+pub fn port_panel_height() -> f32 {
+    let title_strip = 5.0 + 2.0;
+    let rows = PORT_PANEL_KINDS.len() as f32 * ROW_HEIGHT;
+    let pad = 4.0;
+    title_strip + rows + pad
+}
+
+/// Port panel sits above the port, the same way the pier panel sits
+/// above the pier (the port is far south on the canvas — placing the
+/// panel below would push it off-screen).
+pub fn port_panel_pos() -> Vec2 {
+    let h = port_panel_height();
+    Vec2::new(PORT_X, PORT_Y - PORT_H * 0.5 - 4.0 - h * 0.5)
+}
+
+pub fn port_panel_size() -> Vec2 {
+    Vec2::new(PORT_PANEL_W, port_panel_height())
+}
+
+pub fn port_detail_pos() -> Vec2 {
+    let main = port_panel_pos();
+    Vec2::new(
+        main.x + PORT_PANEL_W * 0.5 + PORT_DETAIL_GAP + PORT_DETAIL_W * 0.5,
+        main.y,
+    )
+}
+
+pub fn port_detail_size() -> Vec2 {
+    Vec2::new(PORT_DETAIL_W, port_panel_height().max(DETAIL_MIN_H))
+}
+
+pub fn port_buy_row_y(index: usize) -> f32 {
+    let panel = port_panel_pos();
+    let panel_size = port_panel_size();
+    let panel_top = panel.y - panel_size.y * 0.5;
+    panel_top + 7.0 + ROW_HEIGHT * 0.5 + index as f32 * ROW_HEIGHT
+}
+
+pub fn port_building_rects() -> [(Vec2, Vec2); 1] {
+    let port_min = Vec2::new(PORT_X - PORT_W * 0.5, PORT_Y - PORT_H * 0.5);
+    let port_max = Vec2::new(PORT_X + PORT_W * 0.5, PORT_Y + PORT_H * 0.5);
+    [(port_min - Vec2::splat(2.0), port_max + Vec2::splat(2.0))]
+}
+
+pub fn port_panel_rects() -> [(Vec2, Vec2); 2] {
+    [
+        panel_rect(port_panel_pos(), port_panel_size()),
+        panel_rect(port_detail_pos(), port_detail_size()),
     ]
 }
 

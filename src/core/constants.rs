@@ -93,6 +93,19 @@ pub const HUT_SKIMMER_X: f32 = 50.0;
 pub const HUT_SKIMMER_Y: f32 = 220.0;
 pub const HUT_FISHER_X: f32 = 50.0;
 pub const HUT_FISHER_Y: f32 = 250.0;
+/// Beachcomber and stonemason huts sit just east of the foragers
+/// stack so the row of small hut panels stays visually grouped while
+/// staying clear of the small-rock landing zone.
+pub const HUT_BEACHCOMBER_X: f32 = 140.0;
+pub const HUT_BEACHCOMBER_Y: f32 = 75.0;
+pub const HUT_STONEMASON_X: f32 = 140.0;
+pub const HUT_STONEMASON_Y: f32 = 130.0;
+/// Port — water-side structure, gated behind the pier. Boatmen
+/// launch from here and patrol the ocean.
+pub const PORT_X: f32 = 240.0;
+pub const PORT_Y: f32 = 230.0;
+pub const PORT_W: f32 = 36.0;
+pub const PORT_H: f32 = 12.0;
 pub const HUT_BODY_W: f32 = 16.0;
 pub const HUT_BODY_H: f32 = 10.0;
 pub const HUT_ROOF_W: f32 = 22.0;

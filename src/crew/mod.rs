@@ -43,10 +43,13 @@ use crate::core::common::Pos;
 use crate::core::constants::{HUT_BODY_H, HUT_X, HUT_Y};
 use crate::render::shapes::Shapes;
 
+pub mod beachcomber;
+pub mod boatman;
 pub mod fisherman;
 pub mod miner;
 pub mod purchase;
 pub mod skimmer;
+pub mod stonemason;
 pub mod worker;
 
 pub use purchase::SpawnConversionEvent;
@@ -66,6 +69,9 @@ impl Plugin for CrewPlugin {
                 miner::MinerPlugin,
                 skimmer::SkimmerPlugin,
                 fisherman::FishermanPlugin,
+                beachcomber::BeachcomberPlugin,
+                stonemason::StonemasonPlugin,
+                boatman::BoatmanPlugin,
             ));
     }
 }

@@ -22,13 +22,14 @@ use crate::render::{DisplayMode, DisplayScale};
 
 use super::layout::*;
 use super::purchase::{button_active, can_afford};
-use super::purchase::{is_sold_out, row_visible};
+use super::purchase::{current_worker_cost, is_sold_out, row_visible};
 use super::{
-    ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo, DetailBody, DetailHeader, FisherHut,
-    Fishermen, Fishes, HoverState, Hut, MinerHut, Miners, PanelChromePart, PanelKind, PanelTag,
-    Pier, PurchaseButton, PurchaseKind, SkimUpgrades, SkimmerHut, Skimmers, Workers,
-    CAVE_PANEL_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS,
-    PIER_PANEL_KINDS,
+    BeachcomberHut, Beachcombers, Boatmen, ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo,
+    DetailBody, DetailHeader, FisherHut, Fishermen, Fishes, HoverState, Hut, MinerHut,
+    MinerUpgrades, Miners, PanelChromePart, PanelKind, PanelTag, Pier, Port, PurchaseButton,
+    PurchaseKind, SkimUpgrades, SkimmerHut, Skimmers, StonemasonHut, Stonemasons, Workers,
+    CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
+    HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // ---------------------------------------------------------------------------
@@ -44,146 +45,133 @@ pub(super) fn update_hover(
     miner_hut: Res<MinerHut>,
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
+    bc_hut: Res<BeachcomberHut>,
+    sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     cave_geo: Res<CavePanelGeo>,
     mut hover: ResMut<HoverState>,
 ) {
-    // In docked mode the game plays out without UI — clear all hover
-    // state and bail before reading the cursor.
     if *mode == DisplayMode::Docked {
-        if hover.cave || hover.hut || hover.pier || hover.row.is_some() {
+        if any_hover(&hover) {
             *hover = HoverState::default();
         }
         return;
     }
     let Ok(window) = windows.single() else {
-        if hover.cave || hover.hut || hover.pier || hover.row.is_some() {
+        if any_hover(&hover) {
             *hover = HoverState::default();
         }
         return;
     };
     let cursor = cursor_to_spec(window, display_scale.0);
-    // Two-stage hover model with mouse blocking:
-    //   * A panel **opens** only when the cursor is on its
-    //     structure footprint. Hovering empty space where the
-    //     panel *would* render never opens it.
-    //   * A panel **persists** while the cursor sits over its
-    //     own panel/detail chrome.
-    //   * When the cursor is on the chrome of any open panel,
-    //     that panel claims the cursor — building hovers under
-    //     the chrome are suppressed, so a chrome overlay can't
-    //     leak hover events through to a building beneath it.
     let cave_dynamic_rects = cave_panel_rects_from_geo(&cave_geo);
 
-    let cave_chrome = match cursor {
-        Some(s) => hover.cave && in_any_box(s, &cave_dynamic_rects),
-        None => false,
-    };
-    let hut_chrome = match cursor {
-        Some(s) => hover.hut && in_any_box(s, &hut_panel_rects()),
-        None => false,
-    };
-    let miner_chrome = match cursor {
-        Some(s) => hover.hut_miner && in_any_box(s, &hut_miner_panel_rects()),
-        None => false,
-    };
-    let skimmer_chrome = match cursor {
-        Some(s) => hover.hut_skimmer && in_any_box(s, &hut_skimmer_panel_rects()),
-        None => false,
-    };
-    let fisher_chrome = match cursor {
-        Some(s) => hover.hut_fisher && in_any_box(s, &hut_fisher_panel_rects()),
-        None => false,
-    };
-    let pier_chrome = match cursor {
-        Some(s) => hover.pier && in_any_box(s, &pier_panel_rects()),
-        None => false,
-    };
+    let cave_chrome = chrome_hit(cursor, hover.cave, &cave_dynamic_rects);
+    let hut_chrome = chrome_hit(cursor, hover.hut, &hut_panel_rects());
+    let miner_chrome = chrome_hit(cursor, hover.hut_miner, &hut_miner_panel_rects());
+    let skimmer_chrome = chrome_hit(cursor, hover.hut_skimmer, &hut_skimmer_panel_rects());
+    let fisher_chrome = chrome_hit(cursor, hover.hut_fisher, &hut_fisher_panel_rects());
+    let bc_chrome = chrome_hit(cursor, hover.hut_beachcomber, &hut_beachcomber_panel_rects());
+    let sm_chrome = chrome_hit(cursor, hover.hut_stonemason, &hut_stonemason_panel_rects());
+    let pier_chrome = chrome_hit(cursor, hover.pier, &pier_panel_rects());
+    let port_chrome = chrome_hit(cursor, hover.port, &port_panel_rects());
 
     let chrome_claim = cave_chrome
         || hut_chrome
         || miner_chrome
         || skimmer_chrome
         || fisher_chrome
-        || pier_chrome;
+        || bc_chrome
+        || sm_chrome
+        || pier_chrome
+        || port_chrome;
 
-    let cave_building = match cursor {
-        Some(s) => in_any_box(s, &cave_building_rects()),
+    let building_hit = |rects: &[(Vec2, Vec2)]| match cursor {
+        Some(s) => in_any_box(s, rects),
         None => false,
     };
-    let hut_building = match cursor {
-        Some(s) => in_any_box(s, &hut_building_rects()),
-        None => false,
-    };
-    let miner_building = match cursor {
-        Some(s) => in_any_box(s, &hut_miner_building_rects()),
-        None => false,
-    };
-    let skimmer_building = match cursor {
-        Some(s) => in_any_box(s, &hut_skimmer_building_rects()),
-        None => false,
-    };
-    let fisher_building = match cursor {
-        Some(s) => in_any_box(s, &hut_fisher_building_rects()),
-        None => false,
-    };
-    let pier_building = match cursor {
-        Some(s) => in_any_box(s, &pier_building_rects()),
-        None => false,
-    };
+    let cave_building = building_hit(&cave_building_rects());
+    let hut_building = building_hit(&hut_building_rects());
+    let miner_building = building_hit(&hut_miner_building_rects());
+    let skimmer_building = building_hit(&hut_skimmer_building_rects());
+    let fisher_building = building_hit(&hut_fisher_building_rects());
+    let bc_building = building_hit(&hut_beachcomber_building_rects());
+    let sm_building = building_hit(&hut_stonemason_building_rects());
+    let pier_building = building_hit(&pier_building_rects());
+    let port_building = building_hit(&port_building_rects());
 
-    let cave_zone = if chrome_claim { cave_chrome } else { cave_building };
-    let hut_zone = if chrome_claim { hut_chrome } else { hut_building };
-    let miner_zone = if chrome_claim { miner_chrome } else { miner_building };
-    let skimmer_zone = if chrome_claim { skimmer_chrome } else { skimmer_building };
-    let fisher_zone = if chrome_claim { fisher_chrome } else { fisher_building };
-    let pier_zone = if chrome_claim { pier_chrome } else { pier_building };
+    let resolve = |claim: bool, chrome: bool, building: bool| if claim { chrome } else { building };
+    let cave_zone = resolve(chrome_claim, cave_chrome, cave_building);
+    let hut_zone = resolve(chrome_claim, hut_chrome, hut_building);
+    let miner_zone = resolve(chrome_claim, miner_chrome, miner_building);
+    let skimmer_zone = resolve(chrome_claim, skimmer_chrome, skimmer_building);
+    let fisher_zone = resolve(chrome_claim, fisher_chrome, fisher_building);
+    let bc_zone = resolve(chrome_claim, bc_chrome, bc_building);
+    let sm_zone = resolve(chrome_claim, sm_chrome, sm_building);
+    let pier_zone = resolve(chrome_claim, pier_chrome, pier_building);
+    let port_zone = resolve(chrome_claim, port_chrome, port_building);
 
-    // Row detection — only meaningful when the panel that owns the
-    // row is currently active. The cave's row layout is dynamic, so
-    // we test against the live `CavePanelGeo` + visible-row list
-    // rather than the static `cave_buy_row_y` indices.
     let row = match cursor {
         None => None,
         Some(spec) => {
             if cave_zone {
-                cave_row_at(spec, &cave_geo, &cave_visible_kinds(&hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier))
+                cave_row_at(
+                    spec,
+                    &cave_geo,
+                    &cave_visible_kinds(&hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port),
+                )
             } else if hut.owned && hut_zone {
                 row_at_hut(spec)
-            } else if hut.owned && miner_zone {
+            } else if miner_hut.owned && miner_zone {
                 row_at_hut_miner(spec)
-            } else if hut.owned && skimmer_zone {
+            } else if skimmer_hut.owned && skimmer_zone {
                 row_at_hut_skimmer(spec)
-            } else if hut.owned && fisher_zone {
+            } else if fisher_hut.owned && fisher_zone {
                 row_at_hut_fisher(spec)
+            } else if bc_hut.owned && bc_zone {
+                row_at_hut_beachcomber(spec)
+            } else if sm_hut.owned && sm_zone {
+                row_at_hut_stonemason(spec)
             } else if pier.owned && pier_zone {
                 row_at_pier(spec)
+            } else if port.owned && port_zone {
+                row_at_port(spec)
             } else {
                 None
             }
         }
     };
 
-    if hover.cave != cave_zone {
-        hover.cave = cave_zone;
-    }
-    if hover.hut != hut_zone {
-        hover.hut = hut_zone;
-    }
-    if hover.hut_miner != miner_zone {
-        hover.hut_miner = miner_zone;
-    }
-    if hover.hut_skimmer != skimmer_zone {
-        hover.hut_skimmer = skimmer_zone;
-    }
-    if hover.hut_fisher != fisher_zone {
-        hover.hut_fisher = fisher_zone;
-    }
-    if hover.pier != pier_zone {
-        hover.pier = pier_zone;
-    }
-    if hover.row != row {
-        hover.row = row;
+    if hover.cave != cave_zone { hover.cave = cave_zone; }
+    if hover.hut != hut_zone { hover.hut = hut_zone; }
+    if hover.hut_miner != miner_zone { hover.hut_miner = miner_zone; }
+    if hover.hut_skimmer != skimmer_zone { hover.hut_skimmer = skimmer_zone; }
+    if hover.hut_fisher != fisher_zone { hover.hut_fisher = fisher_zone; }
+    if hover.hut_beachcomber != bc_zone { hover.hut_beachcomber = bc_zone; }
+    if hover.hut_stonemason != sm_zone { hover.hut_stonemason = sm_zone; }
+    if hover.pier != pier_zone { hover.pier = pier_zone; }
+    if hover.port != port_zone { hover.port = port_zone; }
+    if hover.row != row { hover.row = row; }
+}
+
+fn any_hover(h: &HoverState) -> bool {
+    h.cave
+        || h.hut
+        || h.hut_miner
+        || h.hut_skimmer
+        || h.hut_fisher
+        || h.hut_beachcomber
+        || h.hut_stonemason
+        || h.pier
+        || h.port
+        || h.row.is_some()
+}
+
+fn chrome_hit(cursor: Option<Vec2>, currently_open: bool, rects: &[(Vec2, Vec2)]) -> bool {
+    match cursor {
+        Some(s) => currently_open && in_any_box(s, rects),
+        None => false,
     }
 }
 
@@ -220,17 +208,19 @@ fn cave_panel_rects_from_geo(geo: &CavePanelGeo) -> [(Vec2, Vec2); 2] {
     [main, detail]
 }
 
+#[allow(clippy::too_many_arguments)]
 fn cave_visible_kinds(
     hut: &Hut,
     miner_hut: &MinerHut,
     skimmer_hut: &SkimmerHut,
     fisher_hut: &FisherHut,
     pier: &Pier,
+    port: &Port,
 ) -> Vec<PurchaseKind> {
     CAVE_PANEL_KINDS
         .iter()
         .copied()
-        .filter(|k| row_visible(*k, hut, miner_hut, skimmer_hut, fisher_hut, pier))
+        .filter(|k| row_visible(*k, hut, miner_hut, skimmer_hut, fisher_hut, pier, port))
         .collect()
 }
 
@@ -297,6 +287,30 @@ fn row_at_pier(spec: Vec2) -> Option<PurchaseKind> {
     row_at_panel(spec, pier_panel_pos(), PIER_PANEL_W, PIER_PANEL_KINDS, &pier_buy_row_y)
 }
 
+fn row_at_port(spec: Vec2) -> Option<PurchaseKind> {
+    row_at_panel(spec, port_panel_pos(), PORT_PANEL_W, PORT_PANEL_KINDS, &port_buy_row_y)
+}
+
+fn row_at_hut_beachcomber(spec: Vec2) -> Option<PurchaseKind> {
+    row_at_panel(
+        spec,
+        hut_beachcomber_panel_pos(),
+        HUT_PANEL_W,
+        HUT_BEACHCOMBER_KINDS,
+        &hut_beachcomber_buy_row_y,
+    )
+}
+
+fn row_at_hut_stonemason(spec: Vec2) -> Option<PurchaseKind> {
+    row_at_panel(
+        spec,
+        hut_stonemason_panel_pos(),
+        HUT_PANEL_W,
+        HUT_STONEMASON_KINDS,
+        &hut_stonemason_buy_row_y,
+    )
+}
+
 fn row_at_panel(
     spec: Vec2,
     panel_pos: Vec2,
@@ -327,12 +341,16 @@ fn row_at_panel(
 // blanket-set it.
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn update_chrome_visibility(
     hut: Res<Hut>,
     miner_hut: Res<MinerHut>,
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
+    bc_hut: Res<BeachcomberHut>,
+    sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     hover: Res<HoverState>,
     mut chrome_q: Query<(
         &PanelTag,
@@ -346,7 +364,10 @@ pub(super) fn update_chrome_visibility(
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
         && !fisher_hut.is_changed()
+        && !bc_hut.is_changed()
+        && !sm_hut.is_changed()
         && !pier.is_changed()
+        && !port.is_changed()
         && !hover.is_changed()
     {
         return;
@@ -358,7 +379,10 @@ pub(super) fn update_chrome_visibility(
             PanelKind::HutMiner => miner_hut.owned && hover.hut_miner,
             PanelKind::HutSkimmer => skimmer_hut.owned && hover.hut_skimmer,
             PanelKind::HutFisher => fisher_hut.owned && hover.hut_fisher,
+            PanelKind::HutBeachcomber => bc_hut.owned && hover.hut_beachcomber,
+            PanelKind::HutStonemason => sm_hut.owned && hover.hut_stonemason,
             PanelKind::Pier => pier.owned && hover.pier,
+            PanelKind::Port => port.owned && hover.port,
         }
     };
     // Detail container shows only when a row in the *same panel* is
@@ -392,7 +416,10 @@ pub(super) fn update_row_visibility(
     miner_hut: Res<MinerHut>,
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
+    bc_hut: Res<BeachcomberHut>,
+    sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     workers: Res<Workers>,
     skims: Res<Skims>,
     hover: Res<HoverState>,
@@ -407,19 +434,16 @@ pub(super) fn update_row_visibility(
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
         && !fisher_hut.is_changed()
+        && !bc_hut.is_changed()
+        && !sm_hut.is_changed()
         && !pier.is_changed()
+        && !port.is_changed()
         && !workers.is_changed()
         && !skims.is_changed()
         && !hover.is_changed()
     {
         return;
     }
-    // A row is *shown* (visible chrome — possibly darkened) when it
-    // passes `row_visible` AND its panel is currently hovered. The
-    // narrower `button_active` predicate decides whether clicking
-    // the row should fire a purchase, but doesn't affect visibility
-    // any more — sold-out and locked rows still render so the
-    // player sees what they've built / what's coming.
     let panel_open = |k: PurchaseKind| -> bool {
         match panel_for(k) {
             PanelKind::Cave => hover.cave,
@@ -427,12 +451,15 @@ pub(super) fn update_row_visibility(
             PanelKind::HutMiner => miner_hut.owned && hover.hut_miner,
             PanelKind::HutSkimmer => skimmer_hut.owned && hover.hut_skimmer,
             PanelKind::HutFisher => fisher_hut.owned && hover.hut_fisher,
+            PanelKind::HutBeachcomber => bc_hut.owned && hover.hut_beachcomber,
+            PanelKind::HutStonemason => sm_hut.owned && hover.hut_stonemason,
             PanelKind::Pier => pier.owned && hover.pier,
+            PanelKind::Port => port.owned && hover.port,
         }
     };
     let visible = |k: PurchaseKind| -> bool {
         panel_open(k)
-            && row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier)
+            && row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port)
     };
     for (btn, mut v) in &mut rows.p0() {
         let target = vis(visible(btn.kind));
@@ -459,12 +486,17 @@ fn panel_for(k: PurchaseKind) -> PanelKind {
         | PurchaseKind::HutMiner
         | PurchaseKind::HutSkimmer
         | PurchaseKind::HutFisher
+        | PurchaseKind::HutBeachcomber
+        | PurchaseKind::HutStonemason
         | PurchaseKind::Pier => PanelKind::Cave,
         PurchaseKind::Worker => PanelKind::Hut,
-        PurchaseKind::Miner => PanelKind::HutMiner,
+        PurchaseKind::Miner | PurchaseKind::MinerDamage => PanelKind::HutMiner,
         PurchaseKind::Skimmer | PurchaseKind::SkimUpgrade => PanelKind::HutSkimmer,
         PurchaseKind::Fisherman => PanelKind::HutFisher,
-        PurchaseKind::Fish => PanelKind::Pier,
+        PurchaseKind::Beachcomber => PanelKind::HutBeachcomber,
+        PurchaseKind::Stonemason => PanelKind::HutStonemason,
+        PurchaseKind::Fish | PurchaseKind::Port => PanelKind::Pier,
+        PurchaseKind::Boatman => PanelKind::Port,
     }
 }
 
@@ -487,7 +519,10 @@ pub(super) fn update_button_visuals(
     miner_hut: Res<MinerHut>,
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
+    bc_hut: Res<BeachcomberHut>,
+    sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     workers: Res<Workers>,
     hover: Res<HoverState>,
     mut bg_q: Query<(&PurchaseButton, &mut Sprite)>,
@@ -499,32 +534,31 @@ pub(super) fn update_button_visuals(
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
         && !fisher_hut.is_changed()
+        && !bc_hut.is_changed()
+        && !sm_hut.is_changed()
         && !pier.is_changed()
+        && !port.is_changed()
         && !workers.is_changed()
         && !hover.is_changed()
     {
         return;
     }
     let active = |k: PurchaseKind| -> bool {
-        button_active(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &hover)
+        button_active(
+            k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port, &hover,
+        )
     };
     let afford = |k: PurchaseKind| -> bool {
         can_afford(
-            k,
-            &skims,
-            &hut,
-            &miner_hut,
-            &skimmer_hut,
-            &fisher_hut,
-            &pier,
+            k, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
             &workers,
         )
     };
     let visible = |k: PurchaseKind| -> bool {
-        row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier)
+        row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port)
     };
     let sold_out = |k: PurchaseKind| -> bool {
-        is_sold_out(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier)
+        is_sold_out(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port)
     };
     for (btn, mut sprite) in &mut bg_q {
         if !visible(btn.kind) { continue; }
@@ -562,6 +596,7 @@ pub(super) fn update_button_visuals(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn update_count_text(
     workers: Res<Workers>,
     miners: Res<Miners>,
@@ -569,6 +604,10 @@ pub(super) fn update_count_text(
     fishermen: Res<Fishermen>,
     fishes: Res<Fishes>,
     upgrades: Res<SkimUpgrades>,
+    miner_upgrades: Res<MinerUpgrades>,
+    beachcombers: Res<Beachcombers>,
+    stonemasons: Res<Stonemasons>,
+    boatmen: Res<Boatmen>,
     mut q: Query<(&ButtonCount, &mut Text2d)>,
 ) {
     if !workers.is_changed()
@@ -577,6 +616,10 @@ pub(super) fn update_count_text(
         && !fishermen.is_changed()
         && !fishes.is_changed()
         && !upgrades.is_changed()
+        && !miner_upgrades.is_changed()
+        && !beachcombers.is_changed()
+        && !stonemasons.is_changed()
+        && !boatmen.is_changed()
     {
         return;
     }
@@ -584,17 +627,43 @@ pub(super) fn update_count_text(
         text.0 = match tag.0 {
             PurchaseKind::Worker => format!("x{}", workers.count),
             PurchaseKind::Miner => format!("x{}", miners.count),
+            PurchaseKind::MinerDamage => format!("L{}", miner_upgrades.damage_level),
             PurchaseKind::Skimmer => format!("x{}", skimmers.count),
             PurchaseKind::SkimUpgrade => format!("L{}", upgrades.level),
             PurchaseKind::Fisherman => format!("x{}", fishermen.count),
+            PurchaseKind::Beachcomber => format!("x{}", beachcombers.count),
+            PurchaseKind::Stonemason => format!("x{}", stonemasons.count),
+            PurchaseKind::Boatman => format!("x{}", boatmen.count),
             PurchaseKind::Fish => format!("x{}", fishes.count),
             // One-time structures don't show a count column.
             PurchaseKind::Hut
             | PurchaseKind::HutMiner
             | PurchaseKind::HutSkimmer
             | PurchaseKind::HutFisher
-            | PurchaseKind::Pier => String::new(),
+            | PurchaseKind::HutBeachcomber
+            | PurchaseKind::HutStonemason
+            | PurchaseKind::Pier
+            | PurchaseKind::Port => String::new(),
         };
+    }
+}
+
+/// Refresh dynamic cost text. Most rows have static costs and use
+/// the `kind.cost_label()` baked in at spawn. Worker is the only
+/// one whose price scales (1.2× per previous purchase), so we
+/// rewrite its cost text whenever `Workers` changes.
+pub(super) fn update_dynamic_cost_text(
+    workers: Res<Workers>,
+    mut q: Query<(&ButtonCost, &mut Text2d)>,
+) {
+    if !workers.is_changed() {
+        return;
+    }
+    let worker_label = format!("{}", current_worker_cost(&workers));
+    for (cost, mut text) in &mut q {
+        if cost.0 == PurchaseKind::Worker && text.0 != worker_label {
+            text.0 = worker_label.clone();
+        }
     }
 }
 
@@ -625,6 +694,14 @@ fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
             header: if afford { "Buy!" } else { "Locked" },
             body: "Anglers hut.\n\n- 2 starter workers\n- Unlocks fishermen",
         },
+        PurchaseKind::HutBeachcomber => Detail {
+            header: if afford { "Buy!" } else { "Locked" },
+            body: "Combers hut.\n\n- 2 starter workers\n- Unlocks combers",
+        },
+        PurchaseKind::HutStonemason => Detail {
+            header: if afford { "Buy!" } else { "Locked" },
+            body: "Masons hut.\n\n- 2 starter workers\n- Unlocks masons",
+        },
         PurchaseKind::Worker => Detail {
             header: if afford { "Buy!" } else { "Need 10 skims" },
             body: "A forager who idles\nnear the hut.\n\n- Adds 1 worker\n- Convertible to any\n  specialist role",
@@ -633,13 +710,17 @@ fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
             header: if afford { "Buy!" } else { "Need 1 worker" },
             body: "Pickaxe-throwing\nspecialist.\n\n- Hits the big rock\n- 3 damage per throw\n- ~10s cycle",
         },
+        PurchaseKind::MinerDamage => Detail {
+            header: if afford { "Buy!" } else { "Need 30 skims" },
+            body: "Sharper pickaxes.\n\n- +1 damage per\n  miner throw\n- Stacks linearly\n- All miners benefit",
+        },
         PurchaseKind::Skimmer => Detail {
             header: if afford { "Buy!" } else { "Need 1 worker" },
             body: "Picks idle stones up\nand skims them.\n\n- 25% bounce chance\n  (worse than you!)\n- ~15s cycle",
         },
         PurchaseKind::SkimUpgrade => Detail {
             header: if afford { "Buy!" } else { "Need 25 skims" },
-            body: "Better technique.\n\n- +5% bounce chance\n  for player + skimmer\n- Stacks linearly\n- Caps at 95%",
+            body: "Better technique.\n\n- +5% bounce chance\n  for skimmers only\n- Stacks linearly\n- Caps at 95%",
         },
         PurchaseKind::Fisherman => Detail {
             header: if afford { "Buy!" } else { "Need 1 worker" },
@@ -653,6 +734,22 @@ fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
             header: if afford { "Buy!" } else { "Need 5 skims" },
             body: "A bucket of 10 fish.\n\n- Each fish saves 1\n  failing bounce\n- Consumed on rescue\n- Restock anytime",
         },
+        PurchaseKind::Beachcomber => Detail {
+            header: if afford { "Buy!" } else { "Need 1 worker" },
+            body: "Walks the sand with\na shovel digging up\nstones.\n\n- Free rocks every\n  ~8s",
+        },
+        PurchaseKind::Stonemason => Detail {
+            header: if afford { "Buy!" } else { "Need 1 worker" },
+            body: "Sharpens idle stones.\nMasoned stones are\nlight and guarantee\n2 skims.",
+        },
+        PurchaseKind::Boatman => Detail {
+            header: if afford { "Buy!" } else { "Need 1 worker" },
+            body: "Sails out from the\nport, ferrying sunken\nstones back to shore.\n\n- Carries up to 5",
+        },
+        PurchaseKind::Port => Detail {
+            header: if afford { "Buy!" } else { "Need 50 skims" },
+            body: "Wooden dock east of\nthe pier. Unlocks the\nBoatman conversion.",
+        },
     }
 }
 
@@ -664,7 +761,10 @@ pub(super) fn update_detail_text(
     miner_hut: Res<MinerHut>,
     skimmer_hut: Res<SkimmerHut>,
     fisher_hut: Res<FisherHut>,
+    bc_hut: Res<BeachcomberHut>,
+    sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
+    port: Res<Port>,
     workers: Res<Workers>,
     mut header_q: Query<(&DetailHeader, &mut Text2d, &mut TextColor), Without<DetailBody>>,
     mut body_q: Query<(&DetailBody, &mut Text2d, &mut TextColor), Without<DetailHeader>>,
@@ -675,43 +775,25 @@ pub(super) fn update_detail_text(
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
         && !fisher_hut.is_changed()
+        && !bc_hut.is_changed()
+        && !sm_hut.is_changed()
         && !pier.is_changed()
+        && !port.is_changed()
         && !workers.is_changed()
     {
         return;
     }
 
-    // Each row's purchase kind belongs to exactly one panel — that's
-    // the panel whose detail box should show its description.
-    let kind_to_panel = |k: PurchaseKind| match k {
-        PurchaseKind::Hut
-        | PurchaseKind::HutMiner
-        | PurchaseKind::HutSkimmer
-        | PurchaseKind::HutFisher
-        | PurchaseKind::Pier => PanelKind::Cave,
-        PurchaseKind::Worker => PanelKind::Hut,
-        PurchaseKind::Miner => PanelKind::HutMiner,
-        PurchaseKind::Skimmer | PurchaseKind::SkimUpgrade => PanelKind::HutSkimmer,
-        PurchaseKind::Fisherman => PanelKind::HutFisher,
-        PurchaseKind::Fish => PanelKind::Pier,
-    };
-
     let detail_for_panel = |panel: PanelKind| -> Option<Detail> {
         let kind = hover.row?;
-        if kind_to_panel(kind) != panel {
+        if panel_for(kind) != panel {
             return None;
         }
         Some(detail_for(
             kind,
             can_afford(
-                kind,
-                &skims,
-                &hut,
-                &miner_hut,
-                &skimmer_hut,
-                &fisher_hut,
-                &pier,
-                &workers,
+                kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier,
+                &port, &workers,
             ),
         ))
     };
@@ -722,7 +804,10 @@ pub(super) fn update_detail_text(
         PanelKind::HutMiner,
         PanelKind::HutSkimmer,
         PanelKind::HutFisher,
+        PanelKind::HutBeachcomber,
+        PanelKind::HutStonemason,
         PanelKind::Pier,
+        PanelKind::Port,
     ] {
         apply_detail(&mut header_q, &mut body_q, panel, detail_for_panel(panel).as_ref());
     }

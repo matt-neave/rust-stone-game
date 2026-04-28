@@ -38,8 +38,9 @@ mod relayout;
 mod spawn;
 
 pub use purchase::{
-    PurchaseEvent, PurchaseKind, CAVE_PANEL_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS,
-    HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, PIER_PANEL_KINDS,
+    PurchaseEvent, PurchaseKind, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS,
+    HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS,
+    PORT_PANEL_KINDS,
 };
 
 // =====================================================================
@@ -69,14 +70,41 @@ pub struct FisherHut {
     pub owned: bool,
 }
 
+/// Beachcombers hut — gated behind foragers hut. Sells beachcomber
+/// conversions.
+#[derive(Resource, Default, Debug)]
+pub struct BeachcomberHut {
+    pub owned: bool,
+}
+
+/// Stonemasons hut — gated behind miner hut. Sells stonemason
+/// conversions.
+#[derive(Resource, Default, Debug)]
+pub struct StonemasonHut {
+    pub owned: bool,
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct Pier {
     pub owned: bool,
 }
 
+/// Port — water-side structure unlocked from the pier. Boatmen
+/// launch from the port to fish stones out of the ocean.
+#[derive(Resource, Default, Debug)]
+pub struct Port {
+    pub owned: bool,
+}
+
 #[derive(Resource, Default, Debug)]
 pub struct Workers {
+    /// Currently-alive workers idling around the foragers hut.
+    /// Decremented when one is converted into a specialist.
     pub count: u32,
+    /// Cumulative count of workers ever bought from the cave's
+    /// Worker row — never decremented. Drives the dynamic worker
+    /// price (`current_worker_cost`).
+    pub purchased: u32,
 }
 
 #[derive(Resource, Default, Debug)]
@@ -99,12 +127,34 @@ pub struct Fishes {
     pub count: u32,
 }
 
+#[derive(Resource, Default, Debug)]
+pub struct Beachcombers {
+    pub count: u32,
+}
+
+#[derive(Resource, Default, Debug)]
+pub struct Stonemasons {
+    pub count: u32,
+}
+
+#[derive(Resource, Default, Debug)]
+pub struct Boatmen {
+    pub count: u32,
+}
+
 /// Number of `Skim Up` upgrades purchased. Each level adds
 /// `SKIM_UPGRADE_DELTA` to the bounce chance applied when the player
 /// or a skimmer throws a rock.
 #[derive(Resource, Default, Debug)]
 pub struct SkimUpgrades {
     pub level: u32,
+}
+
+/// Repeatable miner upgrades. `damage_level` adds +1 damage per
+/// pickaxe throw, on top of the base [`MINER_PICKAXE_DAMAGE`].
+#[derive(Resource, Default, Debug)]
+pub struct MinerUpgrades {
+    pub damage_level: u32,
 }
 
 /// Cursor-over-structure state. One flag per building (and each
@@ -118,7 +168,10 @@ pub struct HoverState {
     pub hut_miner: bool,
     pub hut_skimmer: bool,
     pub hut_fisher: bool,
+    pub hut_beachcomber: bool,
+    pub hut_stonemason: bool,
     pub pier: bool,
+    pub port: bool,
     pub row: Option<PurchaseKind>,
 }
 
@@ -154,7 +207,10 @@ pub enum PanelKind {
     HutMiner,
     HutSkimmer,
     HutFisher,
+    HutBeachcomber,
+    HutStonemason,
     Pier,
+    Port,
 }
 
 /// Single tag for every chrome entity (panel BG, border, title,
@@ -237,13 +293,20 @@ impl Plugin for EconomyPlugin {
             .init_resource::<MinerHut>()
             .init_resource::<SkimmerHut>()
             .init_resource::<FisherHut>()
+            .init_resource::<BeachcomberHut>()
+            .init_resource::<StonemasonHut>()
             .init_resource::<Pier>()
+            .init_resource::<Port>()
+            .init_resource::<Beachcombers>()
+            .init_resource::<Stonemasons>()
+            .init_resource::<Boatmen>()
             .init_resource::<Workers>()
             .init_resource::<Miners>()
             .init_resource::<Skimmers>()
             .init_resource::<Fishermen>()
             .init_resource::<Fishes>()
             .init_resource::<SkimUpgrades>()
+            .init_resource::<MinerUpgrades>()
             .init_resource::<HoverState>()
             .init_resource::<CavePanelGeo>()
             .add_message::<PurchaseEvent>()
@@ -262,6 +325,7 @@ impl Plugin for EconomyPlugin {
                     purchase::handle_button_clicks,
                     interaction::update_button_visuals,
                     interaction::update_count_text,
+                    interaction::update_dynamic_cost_text,
                 )
                     .chain(),
             );

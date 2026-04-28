@@ -27,14 +27,22 @@ pub struct RockLitMaterial {
     pub params: RockLitParams,
 }
 
-#[derive(ShaderType, Clone, Copy, Default)]
+#[derive(ShaderType, Clone, Copy)]
 pub struct RockLitParams {
     /// World-space Z rotation of the sprite, in radians. Updated each
     /// frame from the rock entity's `Transform`.
     pub rotation: f32,
+    /// Multiplier on the band colors. `1.0` = default; stonemasons
+    /// bump this above `1.0` to lighten masoned rocks.
+    pub brightness: f32,
     pub _pad0: f32,
     pub _pad1: f32,
-    pub _pad2: f32,
+}
+
+impl Default for RockLitParams {
+    fn default() -> Self {
+        Self { rotation: 0.0, brightness: 1.0, _pad0: 0.0, _pad1: 0.0 }
+    }
 }
 
 impl Material2d for RockLitMaterial {

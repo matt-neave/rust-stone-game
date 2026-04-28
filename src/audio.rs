@@ -70,8 +70,13 @@ impl Plugin for AudioPlugin {
             .init_resource::<Muted>()
             .add_message::<PlaySoundEvent>()
             .add_systems(PreStartup, load_sounds)
-            .add_systems(Startup, start_music)
-            .add_systems(Update, (play_sounds, update_music_volume));
+            // Music spawn is deferred to the first un-mute click rather
+            // than firing in `Startup`. Browsers block audio until a
+            // user gesture, and a sink created while the AudioContext
+            // is still suspended can stay silent forever even after the
+            // context unlocks. Waiting for the un-mute click guarantees
+            // the gesture has already happened.
+            .add_systems(Update, (play_sounds, ensure_music_started, update_music_volume));
     }
 }
 
@@ -137,20 +142,29 @@ fn pick<T: Clone>(slice: &[T], rng: &mut rand::rngs::ThreadRng) -> Option<T> {
     }
 }
 
-fn start_music(mut commands: Commands, lib: Res<SoundLib>, muted: Res<Muted>) {
+/// Spawn the looping music sink the first time the player unmutes.
+/// This deferral is what lets the game work on wasm: browsers won't
+/// resume an `AudioContext` until a user gesture, and a sink created
+/// before that gesture can stay silent forever. Pinning the spawn to
+/// the unmute click guarantees the gesture has already happened.
+fn ensure_music_started(
+    mut commands: Commands,
+    lib: Res<SoundLib>,
+    muted: Res<Muted>,
+    existing: Query<(), With<MusicPlayer>>,
+) {
+    if muted.0 || !existing.is_empty() {
+        return;
+    }
     if lib.music == Handle::<AudioSource>::default() {
         return;
     }
-    // Spawn the music sink already at the correct volume for the
-    // initial mute state — avoids a one-frame blip if the default is
-    // muted.
-    let initial = if muted.0 { 0.0 } else { MUSIC_VOLUME };
     commands.spawn((
         MusicPlayer,
         AudioPlayer::<AudioSource>(lib.music.clone()),
         PlaybackSettings {
             mode: PlaybackMode::Loop,
-            volume: Volume::Linear(initial),
+            volume: Volume::Linear(MUSIC_VOLUME),
             ..PlaybackSettings::LOOP
         },
     ));

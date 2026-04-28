@@ -72,6 +72,13 @@ pub const MINER_BODY: Color = Color::srgb(0x8a as f32 / 255.0, 0x4a as f32 / 255
 pub const SKIMMER_BODY: Color = Color::srgb(0x4c as f32 / 255.0, 0x80 as f32 / 255.0, 0x40 as f32 / 255.0);
 /// Fisherman outfit — sea-teal.
 pub const FISHERMAN_BODY: Color = Color::srgb(0x2a as f32 / 255.0, 0x6a as f32 / 255.0, 0x80 as f32 / 255.0);
+/// Beachcomber outfit — sandy earth tone. Skeleton color staged
+/// for the Beachcomber crew feature; not used yet.
+pub const BEACHCOMBER_BODY: Color = Color::srgb(0x8a as f32 / 255.0, 0x6e as f32 / 255.0, 0x46 as f32 / 255.0);
+/// Stonemason outfit — stony grey-brown.
+pub const STONEMASON_BODY: Color = Color::srgb(0x6c as f32 / 255.0, 0x5a as f32 / 255.0, 0x52 as f32 / 255.0);
+/// Boatman outfit — navy blue.
+pub const BOATMAN_BODY: Color = Color::srgb(0x24 as f32 / 255.0, 0x40 as f32 / 255.0, 0x6a as f32 / 255.0);
 /// Pickaxe handle — dark wood.
 pub const PICKAXE: Color = Color::srgb(0x3a as f32 / 255.0, 0x25 as f32 / 255.0, 0x10 as f32 / 255.0);
 /// Fishing rod — slightly lighter wood than the pickaxe.
