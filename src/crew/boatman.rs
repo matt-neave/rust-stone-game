@@ -4,7 +4,7 @@
 //! Cycle: idle at the port → sail to nearest [`SmallRockPhase::Sunken`]
 //! rock → haul → if cargo isn't full and another sunken rock exists,
 //! sail to it; otherwise sail back to the port and fling each cargo
-//! rock onto the sand using the standard tossing physics.
+//! rock onto the sand using the standard falling-arc physics.
 //!
 //! Cargo capacity is `BOATMAN_CARGO_CAPACITY` (5). Picked-up rocks
 //! ride on the boat as a small visible stack until the boatman gets
@@ -16,19 +16,16 @@ use rand::Rng;
 use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
-use crate::core::constants::{
-    BOUNCE_CHANCE_MAX, INTERNAL_HEIGHT, PLAYER_BOUNCE_CHANCE, PORT_X, PORT_Y, SHORELINE_X,
-    SKIM_SPEED, SKIM_UPGRADE_DELTA, Z_CREW,
-};
-use crate::economy::{Boatmen, PurchaseKind, SkimUpgrades};
+use crate::core::constants::{INTERNAL_HEIGHT, PORT_X, PORT_Y, SHORELINE_X, Z_CREW};
+use crate::economy::{Boatmen, PurchaseKind};
 use crate::render::shapes::Shapes;
-use crate::rocks::small::{BounceChance, SmallRock, SmallRockPhase};
+use crate::rocks::small::{SmallRock, SmallRockPhase};
 
 use super::{step_walk_frame, tick_walk_animation, CrewWalking, SpawnConversionEvent};
 
-const BOAT_SPEED: f32 = 32.0;
+const BOAT_SPEED: f32 = 18.0;
 const PICK_UP_DURATION: f32 = 0.4;
-const THROW_DURATION: f32 = 0.45;
+const THROW_DURATION: f32 = 1.8;
 const REST_DURATION: f32 = 0.5;
 const SEARCH_RETRY: f32 = 1.0;
 const BOAT_W: f32 = 8.0;
@@ -153,13 +150,11 @@ fn spawn_boatman(commands: &mut Commands, shapes: &Shapes, boatmen: &mut Boatmen
 #[allow(clippy::too_many_arguments)]
 fn tick_boatmen(
     time: Res<Time>,
-    mut commands: Commands,
     mut boatmen: Query<(Entity, &mut Boatman, &mut Pos), Without<SmallRock>>,
     mut rocks: Query<
         (Entity, &mut SmallRockPhase, &mut Pos, &mut Visibility),
         (With<SmallRock>, Without<Boatman>),
     >,
-    upgrades: Res<SkimUpgrades>,
     mut sound: MessageWriter<PlaySoundEvent>,
 ) {
     let dt = time.delta_secs();
@@ -299,7 +294,7 @@ fn tick_boatmen(
             BoatmanState::Throwing { rock, time: t, dur } => {
                 *t += dt;
                 if *t >= *dur {
-                    if let Ok((rock_e, mut phase, mut rock_pos, mut vis)) =
+                    if let Ok((_rock_e, mut phase, mut rock_pos, mut vis)) =
                         rocks.get_mut(*rock)
                     {
                         let from = pos.0;
@@ -313,17 +308,12 @@ fn tick_boatmen(
                         let duration = (dist / 220.0).clamp(0.35, 0.9);
                         rock_pos.0 = from;
                         *vis = Visibility::Visible;
-                        *phase = SmallRockPhase::Tossing {
+                        *phase = SmallRockPhase::Falling {
                             from,
                             to,
                             time: 0.0,
                             duration,
-                            skim_speed: SKIM_SPEED,
                         };
-                        let bonus = upgrades.level as f32 * SKIM_UPGRADE_DELTA;
-                        let chance =
-                            (PLAYER_BOUNCE_CHANCE + bonus).min(BOUNCE_CHANCE_MAX);
-                        commands.entity(rock_e).insert(BounceChance(chance));
                     }
                     // Drop the just-thrown rock from the cargo list.
                     if let Some(idx) = cargo.iter().position(|e| *e == *rock) {

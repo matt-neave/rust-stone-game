@@ -215,6 +215,7 @@ fn tick_skimmers(
     mut rocks: Query<(Entity, &mut SmallRockPhase, &Pos), (With<SmallRock>, Without<Skimmer>)>,
     upgrades: Res<SkimUpgrades>,
     mut sound: MessageWriter<PlaySoundEvent>,
+    mut rates: ResMut<crate::ui::Rates>,
 ) {
     let dt = time.delta_secs();
     let mut rng = rand::thread_rng();
@@ -343,6 +344,8 @@ fn tick_skimmers(
                         }
                         let chance = effective_bounce_chance(SKIMMER_BOUNCE_CHANCE, &upgrades);
                         commands.entity(rock_e).insert(BounceChance(chance));
+                        rates.stones_thrown_window =
+                            rates.stones_thrown_window.saturating_add(1);
                     }
                     skimmer.rock = None;
                     sound.write(PlaySoundEvent {

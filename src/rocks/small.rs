@@ -169,9 +169,11 @@ fn spawn_small_rocks(
     mut commands: Commands,
     mut events: MessageReader<SpawnSmallRockEvent>,
     shapes: Res<Shapes>,
+    mut rates: ResMut<crate::ui::Rates>,
 ) {
     let mut rng = rand::thread_rng();
     for ev in events.read() {
+        rates.stones_produced_window = rates.stones_produced_window.saturating_add(1);
         // Banding is baked statically into the small-rock textures
         // (see `circle_image_banded` / `ellipse_image_banded`) — no
         // per-rock shader needed. Stonemasons swap the sprite image to
@@ -295,6 +297,7 @@ fn handle_clicks(
     mut q: Query<(Entity, &mut SmallRockPhase, &Pos, &RockShape)>,
     mut sound: MessageWriter<PlaySoundEvent>,
     mut imprint: MessageWriter<SpawnImprintEvent>,
+    mut rates: ResMut<crate::ui::Rates>,
 ) {
     let mut rng = rand::thread_rng();
     for ev in events.read() {
@@ -345,6 +348,7 @@ fn handle_clicks(
             duration,
             skim_speed,
         };
+        rates.stones_thrown_window = rates.stones_thrown_window.saturating_add(1);
         // Player-thrown rocks always use the base 50% bounce chance —
         // Skim Up upgrades only buff the skimmer crew, leaving the
         // cursor's throw on a fixed unbuffed dice roll.

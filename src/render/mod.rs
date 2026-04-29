@@ -7,10 +7,12 @@
 pub mod dock;
 pub mod pipeline;
 pub mod rock_material;
+pub mod scroll;
 pub mod shapes;
 pub mod ui_text;
 
 pub use dock::{DisplayMode, DockButtonHover, DockPlugin, MuteButtonHover};
 pub use pipeline::{DisplayScale, RenderPlugin, UI_LAYER};
 pub use rock_material::{RockLitMaterial, RockLitParams, RockMaterialPlugin, RockQuad};
+pub use scroll::{CameraScroll, ScreenAnchored, ScrollPlugin};
 pub use ui_text::UiText;

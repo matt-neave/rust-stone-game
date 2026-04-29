@@ -157,6 +157,15 @@ pub struct MinerUpgrades {
     pub damage_level: u32,
 }
 
+/// Bundled access to both repeatable-upgrade resources. Used by the
+/// purchase + interaction systems whose parameter count is otherwise
+/// at Bevy's system-param arity ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct UpgradeRes<'w> {
+    pub skim: Res<'w, SkimUpgrades>,
+    pub miner: Res<'w, MinerUpgrades>,
+}
+
 /// Cursor-over-structure state. One flag per building (and each
 /// covers the structure + its panel + its detail panel as a union of
 /// rects, so panels stay visible while the cursor is over the panel).

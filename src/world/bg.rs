@@ -72,6 +72,7 @@ fn spawn_bg(mut commands: Commands) {
     spawn_water_gradient(&mut commands);
 
     // Wet-sand strip — a soft transition just before the foam line.
+    // Vertical strip; spans full canvas height.
     commands.spawn((
         Pos(Vec2::new(SHORELINE_X - 5.0, INTERNAL_HEIGHT * 0.5)),
         Layer(Z_BG_DETAIL),
@@ -123,13 +124,14 @@ fn spawn_bg(mut commands: Commands) {
     }
 
     // Soft vignette — same `srgba(0,0,0,0.18)` overlay as SNKRX. Frames the
-    // canvas without making the corners look painted.
+    // canvas without making the corners look painted. Spans the full
+    // scrollable world so the tint is uniform whatever's on screen.
     commands.spawn((
-        Pos(Vec2::new(INTERNAL_WIDTH * 0.5, INTERNAL_HEIGHT * 0.5)),
+        Pos(Vec2::new(WORLD_WIDTH * 0.5, INTERNAL_HEIGHT * 0.5)),
         Layer(Z_BG_DETAIL + 0.5),
         Sprite::from_color(
             Color::srgba(0.0, 0.0, 0.0, 0.15),
-            Vec2::new(INTERNAL_WIDTH, INTERNAL_HEIGHT),
+            Vec2::new(WORLD_WIDTH, INTERNAL_HEIGHT),
         ),
         Transform::default(),
     ));
@@ -153,9 +155,13 @@ fn spawn_grain(commands: &mut Commands, x: i32, y: i32, color: Color) {
 /// phase)` so the seams read as wandering currents rather than vertical
 /// rules. Each seam has its own phase, so the bands don't all wobble in
 /// lockstep.
+///
+/// The water now spans the full scrollable world (shoreline →
+/// `WORLD_WIDTH`), so the bands stretch correspondingly wider; the
+/// deep bands take up most of the off-screen ocean.
 fn spawn_water_gradient(commands: &mut Commands) {
     let water_x_start = SHORELINE_X;
-    let water_x_end = INTERNAL_WIDTH;
+    let water_x_end = WORLD_WIDTH;
     let water_w = water_x_end - water_x_start;
     let band_w = water_w / WATER_BANDS.len() as f32;
 

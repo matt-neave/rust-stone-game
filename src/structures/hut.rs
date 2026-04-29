@@ -11,6 +11,7 @@ use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::*;
+use crate::crew::builder::StructureBuiltEvent;
 use crate::economy::{
     BeachcomberHut, FisherHut, Hut, MinerHut, PurchaseEvent, PurchaseKind, SkimmerHut,
     StonemasonHut, Workers,
@@ -43,7 +44,7 @@ impl Plugin for HutPlugin {
     fn build(&self, app: &mut App) {
         app.add_message::<SpawnWorkerEvent>()
             .add_systems(Startup, spawn_cave_visual)
-            .add_systems(Update, on_purchase);
+            .add_systems(Update, (on_purchase, on_structure_built));
     }
 }
 
@@ -77,10 +78,13 @@ fn spawn_cave_visual(mut commands: Commands, shapes: Res<Shapes>) {
     ));
 }
 
+/// Flip the per-hut `owned` flag immediately on purchase so a second
+/// click can't queue another build of the same structure. The visual
+/// + starter workers wait for the construction to finish; see
+/// [`on_structure_built`].
 #[allow(clippy::too_many_arguments)]
 fn on_purchase(
     mut events: MessageReader<PurchaseEvent>,
-    mut commands: Commands,
     mut hut: ResMut<Hut>,
     mut miner_hut: ResMut<MinerHut>,
     mut skimmer_hut: ResMut<SkimmerHut>,
@@ -89,113 +93,15 @@ fn on_purchase(
     mut sm_hut: ResMut<StonemasonHut>,
     mut workers: ResMut<Workers>,
     mut spawn_worker: MessageWriter<SpawnWorkerEvent>,
-    mut sound: MessageWriter<PlaySoundEvent>,
-    shapes: Res<Shapes>,
 ) {
     for ev in events.read() {
         match ev.kind {
-            PurchaseKind::Hut => {
-                if hut.owned { continue; }
-                hut.owned = true;
-                spawn_hut_visual(&mut commands, &shapes, HUT_X, HUT_Y, colors::HUT_WALL);
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_X,
-                    HUT_Y,
-                );
-                play_build_sound(&mut sound);
-            }
-            PurchaseKind::HutMiner => {
-                if miner_hut.owned { continue; }
-                miner_hut.owned = true;
-                spawn_hut_visual(
-                    &mut commands,
-                    &shapes,
-                    HUT_MINER_X,
-                    HUT_MINER_Y,
-                    colors::MINER_BODY,
-                );
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_MINER_X,
-                    HUT_MINER_Y,
-                );
-                play_build_sound(&mut sound);
-            }
-            PurchaseKind::HutSkimmer => {
-                if skimmer_hut.owned { continue; }
-                skimmer_hut.owned = true;
-                spawn_hut_visual(
-                    &mut commands,
-                    &shapes,
-                    HUT_SKIMMER_X,
-                    HUT_SKIMMER_Y,
-                    colors::SKIMMER_BODY,
-                );
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_SKIMMER_X,
-                    HUT_SKIMMER_Y,
-                );
-                play_build_sound(&mut sound);
-            }
-            PurchaseKind::HutFisher => {
-                if fisher_hut.owned { continue; }
-                fisher_hut.owned = true;
-                spawn_hut_visual(
-                    &mut commands,
-                    &shapes,
-                    HUT_FISHER_X,
-                    HUT_FISHER_Y,
-                    colors::FISHERMAN_BODY,
-                );
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_FISHER_X,
-                    HUT_FISHER_Y,
-                );
-                play_build_sound(&mut sound);
-            }
-            PurchaseKind::HutBeachcomber => {
-                if bc_hut.owned { continue; }
-                bc_hut.owned = true;
-                spawn_hut_visual(
-                    &mut commands,
-                    &shapes,
-                    HUT_BEACHCOMBER_X,
-                    HUT_BEACHCOMBER_Y,
-                    colors::BEACHCOMBER_BODY,
-                );
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_BEACHCOMBER_X,
-                    HUT_BEACHCOMBER_Y,
-                );
-                play_build_sound(&mut sound);
-            }
-            PurchaseKind::HutStonemason => {
-                if sm_hut.owned { continue; }
-                sm_hut.owned = true;
-                spawn_hut_visual(
-                    &mut commands,
-                    &shapes,
-                    HUT_STONEMASON_X,
-                    HUT_STONEMASON_Y,
-                    colors::STONEMASON_BODY,
-                );
-                spawn_starter_workers(
-                    &mut spawn_worker,
-                    &mut workers,
-                    HUT_STONEMASON_X,
-                    HUT_STONEMASON_Y,
-                );
-                play_build_sound(&mut sound);
-            }
+            PurchaseKind::Hut => hut.owned = true,
+            PurchaseKind::HutMiner => miner_hut.owned = true,
+            PurchaseKind::HutSkimmer => skimmer_hut.owned = true,
+            PurchaseKind::HutFisher => fisher_hut.owned = true,
+            PurchaseKind::HutBeachcomber => bc_hut.owned = true,
+            PurchaseKind::HutStonemason => sm_hut.owned = true,
             PurchaseKind::Worker => {
                 if !hut.owned { continue; }
                 workers.count += 1;
@@ -207,9 +113,9 @@ fn on_purchase(
                     pos: Vec2::new(HUT_X, HUT_Y + HUT_BODY_H * 0.5 + 12.0),
                 });
             }
-            // Specialist roles are consumed by `crew::*`. Pier + Fish
-            // purchases are consumed by `structures::pier`. Nothing
-            // for the hut to do for any of those.
+            // Specialist roles are consumed by `crew::*`. Pier/Port +
+            // Fish purchases are consumed by `structures::pier` /
+            // `structures::port`. Nothing for the hut to do here.
             PurchaseKind::Miner
             | PurchaseKind::MinerDamage
             | PurchaseKind::Skimmer
@@ -225,22 +131,31 @@ fn on_purchase(
     }
 }
 
-/// Spawn the standard pair of starter workers near a freshly-built
-/// hut. Each new hut gives 2 workers free per the design.
-fn spawn_starter_workers(
-    spawn_worker: &mut MessageWriter<SpawnWorkerEvent>,
-    workers: &mut Workers,
-    hut_x: f32,
-    hut_y: f32,
+/// Spawn the hut visual + build sfx once the construction site fires
+/// its completion event. Starter workers come from the builder
+/// crabs themselves (they convert in `crew::builder::tick_construction`).
+fn on_structure_built(
+    mut events: MessageReader<StructureBuiltEvent>,
+    mut commands: Commands,
+    mut sound: MessageWriter<PlaySoundEvent>,
+    shapes: Res<Shapes>,
 ) {
-    for i in 0..STARTING_WORKERS_FROM_HUT {
-        let angle = (i as f32) * std::f32::consts::PI;
-        let dx = WORKER_WANDER_RADIUS * 0.6 * angle.cos();
-        let dy = WORKER_WANDER_RADIUS * 0.4 * angle.sin();
-        spawn_worker.write(SpawnWorkerEvent {
-            pos: Vec2::new(hut_x + dx, hut_y + HUT_BODY_H * 0.5 + 8.0 + dy),
-        });
-        workers.count += 1;
+    for ev in events.read() {
+        let (x, y, color) = match ev.kind {
+            PurchaseKind::Hut => (HUT_X, HUT_Y, colors::HUT_WALL),
+            PurchaseKind::HutMiner => (HUT_MINER_X, HUT_MINER_Y, colors::MINER_BODY),
+            PurchaseKind::HutSkimmer => (HUT_SKIMMER_X, HUT_SKIMMER_Y, colors::SKIMMER_BODY),
+            PurchaseKind::HutFisher => (HUT_FISHER_X, HUT_FISHER_Y, colors::FISHERMAN_BODY),
+            PurchaseKind::HutBeachcomber => {
+                (HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y, colors::BEACHCOMBER_BODY)
+            }
+            PurchaseKind::HutStonemason => {
+                (HUT_STONEMASON_X, HUT_STONEMASON_Y, colors::STONEMASON_BODY)
+            }
+            _ => continue,
+        };
+        spawn_hut_visual(&mut commands, &shapes, x, y, color);
+        play_build_sound(&mut sound);
     }
 }
 

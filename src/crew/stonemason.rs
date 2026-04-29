@@ -26,7 +26,8 @@ const MASON_DURATION: f32 = 3.0;
 const REST_DURATION: f32 = 0.4;
 const SEARCH_RETRY: f32 = 0.7;
 /// Number of guaranteed-success bounce checks a masoned rock gets.
-const MASONED_BOUNCE_CHARGES: u8 = 2;
+/// One charge = one extra bounce on top of the normal dice rolls.
+const MASONED_BOUNCE_CHARGES: u8 = 1;
 
 const CHISEL_HELD_OFFSET: Vec2 = Vec2::new(2.5, -3.0);
 const CHISEL_DRAW_SIZE: f32 = 4.0;

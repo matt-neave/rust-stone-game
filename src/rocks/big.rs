@@ -196,6 +196,7 @@ fn autoclick(
     windows: Query<&Window>,
     display_scale: Res<DisplayScale>,
     mode: Res<DisplayMode>,
+    scroll: Res<crate::render::CameraScroll>,
     rock: Query<&Pos, With<BigRock>>,
     mut hold: ResMut<BigRockHoldState>,
     mut writer: MessageWriter<ClickEvent>,
@@ -217,7 +218,7 @@ fn autoclick(
         return;
     }
     let Ok(window) = windows.single() else { return };
-    let Some(spec) = cursor_to_spec(window, display_scale.0) else {
+    let Some(spec) = cursor_to_spec(window, display_scale.0, scroll.x) else {
         hold.accum = 0.0;
         return;
     };

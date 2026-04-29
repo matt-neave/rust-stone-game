@@ -7,6 +7,7 @@ use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{PORT_H, PORT_W, PORT_X, PORT_Y, Z_PIER};
+use crate::crew::builder::StructureBuiltEvent;
 use crate::economy::{Port, PurchaseEvent, PurchaseKind};
 
 #[derive(Component)]
@@ -16,24 +17,27 @@ pub struct PortPlugin;
 
 impl Plugin for PortPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, handle_port_purchase);
+        app.add_systems(Update, (handle_port_purchase, handle_port_built));
     }
 }
 
-fn handle_port_purchase(
-    mut events: MessageReader<PurchaseEvent>,
+fn handle_port_purchase(mut events: MessageReader<PurchaseEvent>, mut port: ResMut<Port>) {
+    for ev in events.read() {
+        if ev.kind == PurchaseKind::Port {
+            port.owned = true;
+        }
+    }
+}
+
+fn handle_port_built(
+    mut events: MessageReader<StructureBuiltEvent>,
     mut commands: Commands,
-    mut port: ResMut<Port>,
     mut sound: MessageWriter<PlaySoundEvent>,
 ) {
     for ev in events.read() {
         if ev.kind != PurchaseKind::Port {
             continue;
         }
-        if port.owned {
-            continue;
-        }
-        port.owned = true;
         spawn_port_visual(&mut commands);
         sound.write(PlaySoundEvent {
             kind: SoundKind::SmallRockSpawn,

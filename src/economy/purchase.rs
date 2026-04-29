@@ -6,14 +6,14 @@ use bevy::prelude::*;
 use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::common::Pos;
 use crate::core::constants::{
-    FISH_COST, HUT_COST, PIER_COST, SKIM_UPGRADE_COST, WORKER_COST,
+    FISH_COST, HUT_COST, PIER_COST, SKIM_UPGRADE_COST, UPGRADE_LEVEL_CAP, WORKER_COST,
 };
 use crate::core::input::ClickEvent;
 use crate::currency::Skims;
 
 use super::{
-    BeachcomberHut, FisherHut, HoverState, Hut, MinerHut, Pier, Port, PurchaseButton, SkimmerHut,
-    StonemasonHut, Workers,
+    BeachcomberHut, FisherHut, HoverState, Hut, MinerHut, MinerUpgrades, Pier, Port,
+    PurchaseButton, SkimUpgrades, SkimmerHut, StonemasonHut, UpgradeRes, Workers,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,7 +102,7 @@ impl PurchaseKind {
             PurchaseKind::SkimUpgrade => "25",
             PurchaseKind::Fisherman => "1W",
             PurchaseKind::Beachcomber => "1W",
-            PurchaseKind::Stonemason => "1W",
+            PurchaseKind::Stonemason => "100+1W",
             PurchaseKind::Boatman => "1W",
             PurchaseKind::Pier => "30",
             PurchaseKind::Port => "50",
@@ -172,8 +172,8 @@ pub fn cost_for(kind: PurchaseKind) -> u64 {
         | PurchaseKind::Skimmer
         | PurchaseKind::Fisherman
         | PurchaseKind::Beachcomber
-        | PurchaseKind::Stonemason
         | PurchaseKind::Boatman => 0,
+        PurchaseKind::Stonemason => 100,
         PurchaseKind::MinerDamage => 30,
         PurchaseKind::SkimUpgrade => SKIM_UPGRADE_COST,
         PurchaseKind::Pier => PIER_COST,
@@ -218,6 +218,8 @@ pub fn can_afford(
     pier: &Pier,
     port: &Port,
     workers: &Workers,
+    skim_upgrades: &SkimUpgrades,
+    miner_upgrades: &MinerUpgrades,
 ) -> bool {
     match kind {
         // Cave-panel structure unlocks.
@@ -251,12 +253,20 @@ pub fn can_afford(
         PurchaseKind::Worker => hut.owned && skims.total >= current_worker_cost(workers),
         PurchaseKind::Beachcomber => bc_hut.owned && workers.count >= 1,
         PurchaseKind::Miner => miner_hut.owned && workers.count >= 1,
-        PurchaseKind::MinerDamage => miner_hut.owned && skims.total >= 30,
-        PurchaseKind::Stonemason => sm_hut.owned && workers.count >= 1,
+        PurchaseKind::MinerDamage => {
+            miner_hut.owned
+                && miner_upgrades.damage_level < UPGRADE_LEVEL_CAP
+                && skims.total >= 30
+        }
+        PurchaseKind::Stonemason => {
+            sm_hut.owned && workers.count >= 1 && skims.total >= 100
+        }
         PurchaseKind::Skimmer => skimmer_hut.owned && workers.count >= 1,
         PurchaseKind::Fisherman => fisher_hut.owned && workers.count >= 1,
         PurchaseKind::SkimUpgrade => {
-            skimmer_hut.owned && skims.total >= SKIM_UPGRADE_COST
+            skimmer_hut.owned
+                && skim_upgrades.level < UPGRADE_LEVEL_CAP
+                && skims.total >= SKIM_UPGRADE_COST
         }
     }
 }
@@ -358,6 +368,8 @@ pub fn is_sold_out(
     sm_hut: &StonemasonHut,
     pier: &Pier,
     port: &Port,
+    skim_upgrades: &SkimUpgrades,
+    miner_upgrades: &MinerUpgrades,
 ) -> bool {
     match kind {
         PurchaseKind::Hut => hut.owned,
@@ -368,7 +380,9 @@ pub fn is_sold_out(
         PurchaseKind::HutStonemason => sm_hut.owned,
         PurchaseKind::Pier => pier.owned,
         PurchaseKind::Port => port.owned,
-        // Repeatable purchases never sold out.
+        // Repeatable upgrades sell out at the level cap.
+        PurchaseKind::SkimUpgrade => skim_upgrades.level >= UPGRADE_LEVEL_CAP,
+        PurchaseKind::MinerDamage => miner_upgrades.damage_level >= UPGRADE_LEVEL_CAP,
         _ => false,
     }
 }
@@ -389,6 +403,7 @@ pub(super) fn handle_button_clicks(
     pier: Res<Pier>,
     port: Res<Port>,
     workers: Res<Workers>,
+    upgrades: UpgradeRes,
     hover: Res<HoverState>,
 ) {
     for ev in clicks.read() {
@@ -407,7 +422,7 @@ pub(super) fn handle_button_clicks(
             }
             if !can_afford(
                 btn.kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut,
-                &pier, &port, &workers,
+                &pier, &port, &workers, &upgrades.skim, &upgrades.miner,
             ) {
                 sound.write(PlaySoundEvent {
                     kind: SoundKind::Click,

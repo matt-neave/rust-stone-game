@@ -45,6 +45,7 @@ use crate::render::shapes::Shapes;
 
 pub mod beachcomber;
 pub mod boatman;
+pub mod builder;
 pub mod fisherman;
 pub mod miner;
 pub mod purchase;
@@ -72,6 +73,7 @@ impl Plugin for CrewPlugin {
                 beachcomber::BeachcomberPlugin,
                 stonemason::StonemasonPlugin,
                 boatman::BoatmanPlugin,
+                builder::BuilderPlugin,
             ));
     }
 }

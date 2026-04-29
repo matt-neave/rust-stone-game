@@ -47,7 +47,7 @@ use crate::currency::CurrencyPlugin;
 use crate::economy::EconomyPlugin;
 use crate::effects::{FloatingTextPlugin, ParticlesPlugin, RipplePlugin};
 use crate::render::shapes::ShapesPlugin;
-use crate::render::{DockPlugin, RenderPlugin, RockMaterialPlugin};
+use crate::render::{DockPlugin, RenderPlugin, RockMaterialPlugin, ScrollPlugin};
 use crate::rocks::{BigRockPlugin, SandDentPlugin, ShadowPlugin, SmallRockPlugin};
 use crate::structures::{HutPlugin, PierPlugin, PortPlugin};
 use crate::ui::UiPlugin;
@@ -106,6 +106,7 @@ fn main() {
             PierPlugin,
             PortPlugin,
             CrewPlugin,
+            ScrollPlugin,
         ))
         .run();
 }

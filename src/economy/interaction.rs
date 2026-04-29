@@ -27,9 +27,9 @@ use super::{
     BeachcomberHut, Beachcombers, Boatmen, ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo,
     DetailBody, DetailHeader, FisherHut, Fishermen, Fishes, HoverState, Hut, MinerHut,
     MinerUpgrades, Miners, PanelChromePart, PanelKind, PanelTag, Pier, Port, PurchaseButton,
-    PurchaseKind, SkimUpgrades, SkimmerHut, Skimmers, StonemasonHut, Stonemasons, Workers,
-    CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
-    HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
+    PurchaseKind, SkimUpgrades, SkimmerHut, Skimmers, StonemasonHut, Stonemasons, UpgradeRes,
+    Workers, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS,
+    HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +50,7 @@ pub(super) fn update_hover(
     pier: Res<Pier>,
     port: Res<Port>,
     cave_geo: Res<CavePanelGeo>,
+    scroll: Res<crate::render::CameraScroll>,
     mut hover: ResMut<HoverState>,
 ) {
     if *mode == DisplayMode::Docked {
@@ -64,7 +65,7 @@ pub(super) fn update_hover(
         }
         return;
     };
-    let cursor = cursor_to_spec(window, display_scale.0);
+    let cursor = cursor_to_spec(window, display_scale.0, scroll.x);
     let cave_dynamic_rects = cave_panel_rects_from_geo(&cave_geo);
 
     let cave_chrome = chrome_hit(cursor, hover.cave, &cave_dynamic_rects);
@@ -524,6 +525,7 @@ pub(super) fn update_button_visuals(
     pier: Res<Pier>,
     port: Res<Port>,
     workers: Res<Workers>,
+    upgrades: UpgradeRes,
     hover: Res<HoverState>,
     mut bg_q: Query<(&PurchaseButton, &mut Sprite)>,
     mut label_q: Query<(&ButtonLabel, &mut TextColor), Without<ButtonCost>>,
@@ -539,6 +541,8 @@ pub(super) fn update_button_visuals(
         && !pier.is_changed()
         && !port.is_changed()
         && !workers.is_changed()
+        && !upgrades.skim.is_changed()
+        && !upgrades.miner.is_changed()
         && !hover.is_changed()
     {
         return;
@@ -551,14 +555,17 @@ pub(super) fn update_button_visuals(
     let afford = |k: PurchaseKind| -> bool {
         can_afford(
             k, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
-            &workers,
+            &workers, &upgrades.skim, &upgrades.miner,
         )
     };
     let visible = |k: PurchaseKind| -> bool {
         row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port)
     };
     let sold_out = |k: PurchaseKind| -> bool {
-        is_sold_out(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port)
+        is_sold_out(
+            k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
+            &upgrades.skim, &upgrades.miner,
+        )
     };
     for (btn, mut sprite) in &mut bg_q {
         if !visible(btn.kind) { continue; }
@@ -676,30 +683,40 @@ struct Detail {
     body: &'static str,
 }
 
-fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
+fn building_header(afford: bool, sold_out: bool) -> &'static str {
+    if sold_out {
+        "Purchased"
+    } else if afford {
+        "Buy!"
+    } else {
+        "Locked"
+    }
+}
+
+fn detail_for(kind: PurchaseKind, afford: bool, sold_out: bool) -> Detail {
     match kind {
         PurchaseKind::Hut => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Foragers hut.\n\n- 2 starter workers\n- Unlocks worker\n  buys",
         },
         PurchaseKind::HutMiner => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Miners hut.\n\n- 2 starter workers\n- Unlocks miners\n- Gates the next\n  two huts",
         },
         PurchaseKind::HutSkimmer => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Skimmers hut.\n\n- 2 starter workers\n- Unlocks skimmers\n- Sells skim\n  upgrades",
         },
         PurchaseKind::HutFisher => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Anglers hut.\n\n- 2 starter workers\n- Unlocks fishermen",
         },
         PurchaseKind::HutBeachcomber => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Combers hut.\n\n- 2 starter workers\n- Unlocks combers",
         },
         PurchaseKind::HutStonemason => Detail {
-            header: if afford { "Buy!" } else { "Locked" },
+            header: building_header(afford, sold_out),
             body: "Masons hut.\n\n- 2 starter workers\n- Unlocks masons",
         },
         PurchaseKind::Worker => Detail {
@@ -727,7 +744,13 @@ fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
             body: "Fishes stones from\nthe sea.\n\n- 7-13s per cast\n- 50% catch chance",
         },
         PurchaseKind::Pier => Detail {
-            header: if afford { "Buy!" } else { "Need 30 skims" },
+            header: if sold_out {
+                "Purchased"
+            } else if afford {
+                "Buy!"
+            } else {
+                "Need 30 skims"
+            },
             body: "A wooden pier into\nthe water.\n\n- Unlocks fish buys\n- Comes with 1 fish",
         },
         PurchaseKind::Fish => Detail {
@@ -740,14 +763,20 @@ fn detail_for(kind: PurchaseKind, afford: bool) -> Detail {
         },
         PurchaseKind::Stonemason => Detail {
             header: if afford { "Buy!" } else { "Need 1 worker" },
-            body: "Sharpens idle stones.\nMasoned stones are\nlight and guarantee\n2 skims.",
+            body: "Sharpens idle stones.\nMasoned stones get\n+1 guaranteed bounce.",
         },
         PurchaseKind::Boatman => Detail {
             header: if afford { "Buy!" } else { "Need 1 worker" },
             body: "Sails out from the\nport, ferrying sunken\nstones back to shore.\n\n- Carries up to 5",
         },
         PurchaseKind::Port => Detail {
-            header: if afford { "Buy!" } else { "Need 50 skims" },
+            header: if sold_out {
+                "Purchased"
+            } else if afford {
+                "Buy!"
+            } else {
+                "Need 50 skims"
+            },
             body: "Wooden dock east of\nthe pier. Unlocks the\nBoatman conversion.",
         },
     }
@@ -766,6 +795,7 @@ pub(super) fn update_detail_text(
     pier: Res<Pier>,
     port: Res<Port>,
     workers: Res<Workers>,
+    upgrades: UpgradeRes,
     mut header_q: Query<(&DetailHeader, &mut Text2d, &mut TextColor), Without<DetailBody>>,
     mut body_q: Query<(&DetailBody, &mut Text2d, &mut TextColor), Without<DetailHeader>>,
 ) {
@@ -780,6 +810,8 @@ pub(super) fn update_detail_text(
         && !pier.is_changed()
         && !port.is_changed()
         && !workers.is_changed()
+        && !upgrades.skim.is_changed()
+        && !upgrades.miner.is_changed()
     {
         return;
     }
@@ -789,13 +821,15 @@ pub(super) fn update_detail_text(
         if panel_for(kind) != panel {
             return None;
         }
-        Some(detail_for(
-            kind,
-            can_afford(
-                kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier,
-                &port, &workers,
-            ),
-        ))
+        let afford = can_afford(
+            kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier,
+            &port, &workers, &upgrades.skim, &upgrades.miner,
+        );
+        let sold_out = is_sold_out(
+            kind, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
+            &upgrades.skim, &upgrades.miner,
+        );
+        Some(detail_for(kind, afford, sold_out))
     };
 
     for panel in [
@@ -828,6 +862,8 @@ fn apply_detail(
                 text.0 = d.header.to_string();
                 color.0 = if d.header == "Buy!" {
                     colors::DETAIL_OK
+                } else if d.header == "Purchased" {
+                    colors::YELLOW
                 } else {
                     colors::DETAIL_LOCKED
                 };

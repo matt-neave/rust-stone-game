@@ -10,15 +10,15 @@ use rand::Rng;
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{
-    FISHES_PER_BUCKET, INTERNAL_HEIGHT, INTERNAL_WIDTH, PIER_H, PIER_W, PIER_X, PIER_Y,
-    SHORELINE_X, STARTING_FISH_FROM_PIER, Z_FISH, Z_PIER,
+    FISHES_PER_BUCKET, INTERNAL_HEIGHT, PIER_H, PIER_W, PIER_X, PIER_Y, SHORELINE_X,
+    STARTING_FISH_FROM_PIER, WORLD_WIDTH, Z_FISH, Z_PIER,
 };
 
-/// Fish wander box — spans the full ocean (shoreline to right edge,
-/// top to bottom of canvas) so fish cover the whole water rather than
-/// clustering at the pier.
+/// Fish wander box — spans the full ocean (shoreline to right edge of
+/// the scrollable world, top to bottom of canvas) so fish cover the
+/// whole water rather than clustering at the pier.
 const FISH_X_MIN: f32 = SHORELINE_X + 4.0;
-const FISH_X_MAX: f32 = INTERNAL_WIDTH - 6.0;
+const FISH_X_MAX: f32 = WORLD_WIDTH - 6.0;
 const FISH_Y_MIN: f32 = 6.0;
 const FISH_Y_MAX: f32 = INTERNAL_HEIGHT - 6.0;
 /// Fraction of fish wander targets that bias toward the shoreline
@@ -27,6 +27,7 @@ const FISH_Y_MAX: f32 = INTERNAL_HEIGHT - 6.0;
 const FISH_INSHORE_BIAS: f64 = 0.6;
 /// X-range of the inshore band when biased.
 const FISH_INSHORE_X_MAX: f32 = SHORELINE_X + 80.0;
+use crate::crew::builder::StructureBuiltEvent;
 use crate::economy::{Fishes, Pier, PurchaseEvent, PurchaseKind};
 
 #[derive(Component)]
@@ -50,7 +51,15 @@ pub struct PierPlugin;
 
 impl Plugin for PierPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (handle_pier_purchase, handle_fish_purchase, tick_fish));
+        app.add_systems(
+            Update,
+            (
+                handle_pier_purchase,
+                handle_pier_built,
+                handle_fish_purchase,
+                tick_fish,
+            ),
+        );
     }
 }
 
@@ -58,20 +67,26 @@ impl Plugin for PierPlugin {
 // Pier purchase + visual
 // ---------------------------------------------------------------------------
 
-fn handle_pier_purchase(
-    mut events: MessageReader<PurchaseEvent>,
+/// Flag the pier as owned immediately on purchase so the cave panel
+/// stops offering it. The visual + starter fish wait for the
+/// construction-complete signal in [`handle_pier_built`].
+fn handle_pier_purchase(mut events: MessageReader<PurchaseEvent>, mut pier: ResMut<Pier>) {
+    for ev in events.read() {
+        if ev.kind == PurchaseKind::Pier {
+            pier.owned = true;
+        }
+    }
+}
+
+fn handle_pier_built(
+    mut events: MessageReader<StructureBuiltEvent>,
     mut commands: Commands,
-    mut pier: ResMut<Pier>,
     mut fishes: ResMut<Fishes>,
 ) {
     for ev in events.read() {
         if ev.kind != PurchaseKind::Pier {
             continue;
         }
-        if pier.owned {
-            continue;
-        }
-        pier.owned = true;
         spawn_pier_visual(&mut commands);
         // Comes with one starter fish so the pier doesn't feel empty
         // until the player gets around to buying more.

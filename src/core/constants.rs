@@ -8,6 +8,13 @@ use bevy::math::Vec3;
 pub const INTERNAL_WIDTH: f32 = 480.0;
 pub const INTERNAL_HEIGHT: f32 = 270.0;
 
+/// Total spec width of the scrollable world. The camera shows a
+/// 480-wide window into this strip; everything in between scrolls
+/// horizontally as the player presses left / right (or A / D). Sand
+/// stays anchored to the left side of the world; the rest is open
+/// water.
+pub const WORLD_WIDTH: f32 = 1440.0;
+
 
 /// X coordinate of the sand/water boundary. Sand is left of this line, water
 /// is right. The transition is rendered as a thin foam strip in `bg.rs`.
@@ -79,7 +86,6 @@ pub const PIER_COST: u64 = 30;
 /// fish that despawn after their first rescue.
 pub const FISH_COST: u64 = 5;
 pub const FISHES_PER_BUCKET: u32 = 10;
-pub const STARTING_WORKERS_FROM_HUT: u32 = 2;
 
 /// Foragers hut placement — top-left of the sand, well clear of the
 /// big rock (centred at 56,184) and the small-rock landing zone
@@ -161,6 +167,10 @@ pub const SKIM_UPGRADE_DELTA: f32 = 0.05;
 pub const BOUNCE_CHANCE_MAX: f32 = 0.95;
 /// Cost in skims of one Skim Up upgrade.
 pub const SKIM_UPGRADE_COST: u64 = 25;
+/// Hard cap on repeatable upgrade levels (Skim Up, Pickaxe). Once
+/// purchased to this many levels the row darkens and stops accepting
+/// further buys.
+pub const UPGRADE_LEVEL_CAP: u32 = 4;
 
 /// Fisherman timing — sits at the water edge and pulls something up
 /// every 7-13 seconds. 50/50 whether the catch is a rock.

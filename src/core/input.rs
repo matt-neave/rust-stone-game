@@ -10,7 +10,9 @@ use bevy::input::ButtonInput;
 use bevy::prelude::*;
 
 use crate::core::constants::{INTERNAL_HEIGHT, INTERNAL_WIDTH};
-use crate::render::{DisplayMode, DisplayScale, DockButtonHover, MuteButtonHover};
+use crate::render::{
+    CameraScroll, DisplayMode, DisplayScale, DockButtonHover, MuteButtonHover,
+};
 
 #[derive(Message)]
 pub struct ClickEvent {
@@ -34,6 +36,7 @@ fn emit_clicks(
     mode: Res<DisplayMode>,
     dock_hover: Res<DockButtonHover>,
     mute_hover: Res<MuteButtonHover>,
+    scroll: Res<CameraScroll>,
     mut writer: MessageWriter<ClickEvent>,
 ) {
     if !mouse.just_pressed(MouseButton::Left) {
@@ -51,20 +54,23 @@ fn emit_clicks(
     let Ok(window) = windows.single() else {
         return;
     };
-    let Some(spec) = cursor_to_spec(window, display_scale.0) else {
+    let Some(spec) = cursor_to_spec(window, display_scale.0, scroll.x) else {
         return;
     };
     writer.write(ClickEvent { pos: spec });
 }
 
 /// Convert a window's cursor position to spec (internal-canvas) coordinates,
-/// accounting for the integer-upscale letterboxing. Returns `None` if the
-/// cursor is outside the canvas (or the window has no cursor).
+/// accounting for the integer-upscale letterboxing **and** the current
+/// horizontal camera scroll. The returned spec is in *world* spec
+/// coordinates — i.e., directly comparable to entity `Pos` values —
+/// not screen-relative. Returns `None` if the cursor is outside the
+/// visible canvas (or the window has no cursor).
 ///
 /// Public so other systems can read the cursor without re-doing the math.
 /// `bigrock`'s autoclick uses it to gate hold-to-autoclick on cursor
 /// position.
-pub fn cursor_to_spec(window: &Window, display_scale: f32) -> Option<Vec2> {
+pub fn cursor_to_spec(window: &Window, display_scale: f32, scroll_x: f32) -> Option<Vec2> {
     let cursor = window.cursor_position()?;
     let win_w = window.width();
     let win_h = window.height();
@@ -73,10 +79,10 @@ pub fn cursor_to_spec(window: &Window, display_scale: f32) -> Option<Vec2> {
     let display_h = INTERNAL_HEIGHT * scale;
     let off_x = (win_w - display_w) * 0.5;
     let off_y = (win_h - display_h) * 0.5;
-    let spec = Vec2::new((cursor.x - off_x) / scale, (cursor.y - off_y) / scale);
-    if spec.x < 0.0 || spec.x > INTERNAL_WIDTH || spec.y < 0.0 || spec.y > INTERNAL_HEIGHT {
-        None
-    } else {
-        Some(spec)
+    let screen_x = (cursor.x - off_x) / scale;
+    let screen_y = (cursor.y - off_y) / scale;
+    if screen_x < 0.0 || screen_x > INTERNAL_WIDTH || screen_y < 0.0 || screen_y > INTERNAL_HEIGHT {
+        return None;
     }
+    Some(Vec2::new(screen_x + scroll_x, screen_y))
 }
