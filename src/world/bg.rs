@@ -17,6 +17,7 @@ use rand::Rng;
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::*;
+use crate::render::shapes::Shapes;
 
 /// Number of light-tinted sand grains scattered over the base sand.
 /// Each grain is a single 1×1 pixel placed on the integer grid so the
@@ -55,16 +56,134 @@ pub struct BgPlugin;
 
 impl Plugin for BgPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, spawn_bg);
+        app.add_systems(Startup, (spawn_bg, spawn_tree))
+            .add_systems(Update, spawn_broken_storage_on_unlock);
+    }
+}
+
+/// Marker for the three sprites that make up the standalone tree.
+/// Always visible from startup — the player can scroll west and see
+/// the tree at any time, even before the research mission is bought.
+#[derive(Component)]
+pub struct Tree;
+
+/// Marker for the main foliage sprite specifically — distinct from the
+/// trunk and the highlight stamp. The wood plugin's per-click wiggle
+/// system filters on this so it can wobble the foliage's `Transform`
+/// without disturbing the cached `Pos`.
+#[derive(Component)]
+pub struct TreeFoliage;
+
+/// Marker for the scattered "wreck" sprites that appear at the
+/// `TREE_STORAGE_*` location once the research mission completes.
+/// They stand in for the broken storage; despawned wholesale when the
+/// player buys the `TreeStorage` upgrade.
+#[derive(Component)]
+pub struct BrokenStorage;
+
+/// Marker for the upgraded, intact storage crate. Spawned by the
+/// purchase handler in [`crate::structures::research`].
+#[derive(Component)]
+pub struct WholeStorage;
+
+/// Trunk dimensions, in spec px.
+const TREE_TRUNK_W: f32 = 5.0;
+const TREE_TRUNK_H: f32 = 18.0;
+/// Foliage size — must match the texture aspect baked in `Shapes`.
+const TREE_FOLIAGE_W: f32 = 32.0;
+const TREE_FOLIAGE_H: f32 = 28.0;
+
+/// Spawn the standalone tree well to the left of the big rock. Three
+/// sprites: trunk, foliage main mass, foliage highlight on top-right.
+fn spawn_tree(mut commands: Commands, shapes: Res<Shapes>) {
+    // Trunk — small brown rectangle anchored at the tree's base.
+    let trunk_cy = TREE_Y + TREE_TRUNK_H * 0.5;
+    commands.spawn((
+        Tree,
+        Pos(Vec2::new(TREE_X, trunk_cy)),
+        Layer(Z_HUT),
+        Sprite::from_color(colors::TREE_TRUNK, Vec2::new(TREE_TRUNK_W, TREE_TRUNK_H)),
+        Transform::default(),
+    ));
+    // Foliage main mass — irregular green blob sitting above the trunk.
+    let foliage_cy = TREE_Y - TREE_FOLIAGE_H * 0.5 + 4.0;
+    commands.spawn((
+        Tree,
+        TreeFoliage,
+        Pos(Vec2::new(TREE_X, foliage_cy)),
+        Layer(Z_HUT + 0.05),
+        Sprite {
+            image: shapes.tree_foliage.clone(),
+            color: colors::TREE_FOLIAGE,
+            custom_size: Some(Vec2::new(TREE_FOLIAGE_W, TREE_FOLIAGE_H)),
+            ..default()
+        },
+        Transform::default(),
+    ));
+    // Highlight stamp — same dimensions, smaller blobs lighting the
+    // top-right of the canopy.
+    commands.spawn((
+        Tree,
+        Pos(Vec2::new(TREE_X, foliage_cy)),
+        Layer(Z_HUT + 0.07),
+        Sprite {
+            image: shapes.tree_foliage_light.clone(),
+            color: colors::TREE_FOLIAGE_LIGHT,
+            custom_size: Some(Vec2::new(TREE_FOLIAGE_W, TREE_FOLIAGE_H)),
+            ..default()
+        },
+        Transform::default(),
+    ));
+}
+
+/// Once the cinematic finishes, sprinkle a few small dark-brown
+/// rectangles where the storage will eventually go — visual cue that
+/// there's something here for the player to invest in.
+fn spawn_broken_storage_on_unlock(
+    mission: Res<crate::economy::ResearchMission>,
+    existing: Query<(), With<BrokenStorage>>,
+    storage: Res<crate::economy::TreeStorage>,
+    mut commands: Commands,
+) {
+    // Only fire the first time we observe the unlock; never re-spawn
+    // (and never spawn after the player buys the upgrade).
+    if !mission.unlocked || storage.owned {
+        return;
+    }
+    if !existing.is_empty() {
+        return;
+    }
+    // Four small chunks scattered in roughly a 12×8 footprint.
+    let chunks: [(f32, f32, f32, f32); 4] = [
+        (-4.0, -2.0, 4.0, 2.0),
+        (1.0, -3.0, 3.0, 2.0),
+        (-1.0, 1.0, 5.0, 2.0),
+        (4.0, 0.0, 2.0, 2.0),
+    ];
+    for (dx, dy, w, h) in chunks {
+        commands.spawn((
+            BrokenStorage,
+            Pos(Vec2::new(
+                crate::core::constants::TREE_STORAGE_X + dx,
+                crate::core::constants::TREE_STORAGE_Y + dy,
+            )),
+            Layer(Z_HUT - 0.05),
+            Sprite::from_color(colors::TREE_TRUNK, Vec2::new(w, h)),
+            Transform::default(),
+        ));
     }
 }
 
 fn spawn_bg(mut commands: Commands) {
-    // Sand half — solid base.
+    // Sand — spans the world's left edge to the shoreline. With
+    // scrolling enabled, sand reaches into negative spec x so the
+    // tree (and any future leftward content) sits on the same beach.
+    let sand_w = SHORELINE_X - WORLD_LEFT;
+    let sand_cx = (WORLD_LEFT + SHORELINE_X) * 0.5;
     commands.spawn((
-        Pos(Vec2::new(SHORELINE_X * 0.5, INTERNAL_HEIGHT * 0.5)),
+        Pos(Vec2::new(sand_cx, INTERNAL_HEIGHT * 0.5)),
         Layer(Z_BG),
-        Sprite::from_color(colors::SAND, Vec2::new(SHORELINE_X, INTERNAL_HEIGHT)),
+        Sprite::from_color(colors::SAND, Vec2::new(sand_w, INTERNAL_HEIGHT)),
         Transform::default(),
     ));
 
@@ -94,7 +213,7 @@ fn spawn_bg(mut commands: Commands) {
     // rectangles the old version produced. A small fraction of grains
     // get an extra 1-px neighbour for occasional 2-px clusters.
     let mut rng = rand::thread_rng();
-    let x_min = 2i32;
+    let x_min = (WORLD_LEFT as i32) + 2;
     let x_max = (SHORELINE_X as i32) - 8;
     let y_min = 2i32;
     let y_max = (INTERNAL_HEIGHT as i32) - 2;
@@ -125,13 +244,18 @@ fn spawn_bg(mut commands: Commands) {
 
     // Soft vignette — same `srgba(0,0,0,0.18)` overlay as SNKRX. Frames the
     // canvas without making the corners look painted. Spans the full
-    // scrollable world so the tint is uniform whatever's on screen.
+    // scrollable world (including the leftward sand strip) so the
+    // tint is uniform whatever's on screen.
+    let world_full_w = WORLD_WIDTH - WORLD_LEFT;
     commands.spawn((
-        Pos(Vec2::new(WORLD_WIDTH * 0.5, INTERNAL_HEIGHT * 0.5)),
+        Pos(Vec2::new(
+            (WORLD_LEFT + WORLD_WIDTH) * 0.5,
+            INTERNAL_HEIGHT * 0.5,
+        )),
         Layer(Z_BG_DETAIL + 0.5),
         Sprite::from_color(
             Color::srgba(0.0, 0.0, 0.0, 0.15),
-            Vec2::new(WORLD_WIDTH, INTERNAL_HEIGHT),
+            Vec2::new(world_full_w, INTERNAL_HEIGHT),
         ),
         Transform::default(),
     ));

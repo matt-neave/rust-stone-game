@@ -284,7 +284,7 @@ fn tick_fishermen(
                         floating.write(SpawnFloatingTextEvent {
                             pos: Vec2::new(spot.x, spot.y - 8.0),
                             text: "miss".into(),
-                            color: colors::DETAIL_LOCKED,
+                            color: colors::MISS_RED,
                             size: 7.0,
                             duration: 0.9,
                             vy: -10.0,

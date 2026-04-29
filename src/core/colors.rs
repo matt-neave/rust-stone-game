@@ -92,6 +92,25 @@ pub const FISHING_LINE: Color = Color::srgba(
     0.55,
 );
 
+/// Tree trunk — dark brown rectangle.
+pub const TREE_TRUNK: Color = Color::srgb(
+    0x4a as f32 / 255.0,
+    0x2c as f32 / 255.0,
+    0x16 as f32 / 255.0,
+);
+/// Tree foliage main mass — muted forest green.
+pub const TREE_FOLIAGE: Color = Color::srgb(
+    0x35 as f32 / 255.0,
+    0x6a as f32 / 255.0,
+    0x32 as f32 / 255.0,
+);
+/// Tree foliage highlight — top-right lit edge.
+pub const TREE_FOLIAGE_LIGHT: Color = Color::srgb(
+    0x55 as f32 / 255.0,
+    0x8e as f32 / 255.0,
+    0x42 as f32 / 255.0,
+);
+
 /// Purchase-button background — a dim warm panel that reads against both
 /// sand and water without competing with the rocks.
 pub const BUTTON_BG: Color = Color::srgba(0.06, 0.07, 0.09, 0.78);
@@ -110,3 +129,13 @@ pub const BUTTON_DIM_TEXT: Color = Color::srgb(0x60 as f32 / 255.0, 0x5d as f32 
 pub const DETAIL_OK: Color = Color::srgb(0x6a as f32 / 255.0, 0xc8 as f32 / 255.0, 0x64 as f32 / 255.0);
 /// Detail-panel header when the action is locked / can't afford yet.
 pub const DETAIL_LOCKED: Color = Color::srgb(0xc8 as f32 / 255.0, 0x6a as f32 / 255.0, 0x4a as f32 / 255.0);
+
+/// Darker red for shouted in-world labels — the fisherman's "miss",
+/// the research scout's "!" briefing, and the scout's speech line.
+/// Reads as urgent against sand and water without competing with the
+/// brighter `DETAIL_LOCKED` used in the locked-row detail headers.
+pub const MISS_RED: Color = Color::srgb(
+    0x9a as f32 / 255.0,
+    0x2c as f32 / 255.0,
+    0x22 as f32 / 255.0,
+);

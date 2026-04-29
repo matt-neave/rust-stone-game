@@ -15,7 +15,7 @@ use bevy::input::ButtonInput;
 use bevy::prelude::*;
 
 use crate::core::common::Pos;
-use crate::core::constants::{INTERNAL_WIDTH, WORLD_WIDTH};
+use crate::core::constants::{INTERNAL_WIDTH, WORLD_LEFT, WORLD_WIDTH};
 
 use super::pipeline::GameCamera;
 
@@ -41,6 +41,15 @@ pub struct ScreenAnchored {
     pub spec_x: f32,
 }
 
+/// Marker on a [`UiText`](crate::render::UiText) entity whose
+/// `spec_pos` is in *screen* coords rather than world coords. By
+/// default `sync_ui_text` subtracts the camera scroll from each text's
+/// spec_x so the text follows world objects (rock click counter,
+/// panel labels). HUD text entities (FPS, SKIMS, rates) carry this
+/// marker so they stay glued to the screen.
+#[derive(Component)]
+pub struct ScreenFixedText;
+
 pub struct ScrollPlugin;
 
 impl Plugin for ScrollPlugin {
@@ -56,7 +65,13 @@ fn tick_scroll_input(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut scroll: ResMut<CameraScroll>,
+    mission: Res<crate::economy::ResearchMission>,
 ) {
+    // Cinematic active — the scout's state machine owns the camera; do
+    // not let the player nudge it.
+    if mission.started && !mission.unlocked {
+        return;
+    }
     let mut dx = 0.0;
     if keys.pressed(KeyCode::ArrowLeft) || keys.pressed(KeyCode::KeyA) {
         dx -= 1.0;
@@ -67,8 +82,13 @@ fn tick_scroll_input(
     if dx == 0.0 {
         return;
     }
-    let max_scroll = (WORLD_WIDTH - INTERNAL_WIDTH).max(0.0);
-    let new_x = (scroll.x + dx * SCROLL_SPEED * time.delta_secs()).clamp(0.0, max_scroll);
+    let max_scroll = WORLD_WIDTH - INTERNAL_WIDTH;
+    // Westward scroll is locked until the mission cinematic completes —
+    // the tree (and any wood/storage west of x=0) is gated behind that
+    // unlock. Once unlocked, the full WORLD_LEFT extent is reachable.
+    let min_scroll = if mission.unlocked { WORLD_LEFT } else { 0.0 };
+    let new_x =
+        (scroll.x + dx * SCROLL_SPEED * time.delta_secs()).clamp(min_scroll, max_scroll);
     if (new_x - scroll.x).abs() > f32::EPSILON {
         scroll.x = new_x;
     }

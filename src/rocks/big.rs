@@ -17,17 +17,12 @@ use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::*;
-use crate::core::input::{cursor_to_spec, ClickEvent};
+use crate::core::input::{run_autoclick, ClickEvent};
 use crate::effects::particles::SpawnParticleBurstEvent;
 use crate::render::{DisplayMode, DisplayScale, RockLitMaterial, RockLitParams, RockQuad, UiText, UI_LAYER};
 use crate::render::shapes::Shapes;
 use crate::rocks::shadow::spawn_static_shadow;
 use crate::rocks::small::{SpawnSmallRockEvent, SMALL_ROCK_FALL_DURATION_FAST};
-
-/// Hold-to-autoclick rate — 4 clicks per second. Synthetic clicks fire on
-/// a fixed 0.25 s cadence after the initial press, so a player can
-/// stockpile small rocks by just holding LMB on the boulder.
-pub const AUTOCLICK_INTERVAL: f32 = 0.25;
 
 #[derive(Component, Default)]
 pub struct BigRock {
@@ -186,10 +181,10 @@ fn spawn_big_rock(
 }
 
 /// While LMB is held with the cursor over the big rock, emit synthetic
-/// `ClickEvent`s every `AUTOCLICK_INTERVAL` seconds. The initial press is
-/// handled by `input::emit_clicks`; this system only fills in the held-down
-/// repeat clicks. Skipped on the just-pressed frame so the press event
-/// doesn't double-fire.
+/// `ClickEvent`s every `AUTOCLICK_INTERVAL` seconds. Delegates the
+/// shared bookkeeping (mode/press/hit-test/accumulator) to
+/// `core::input::run_autoclick`.
+#[allow(clippy::too_many_arguments)]
 fn autoclick(
     time: Res<Time>,
     mouse: Res<bevy::input::ButtonInput<MouseButton>>,
@@ -201,39 +196,20 @@ fn autoclick(
     mut hold: ResMut<BigRockHoldState>,
     mut writer: MessageWriter<ClickEvent>,
 ) {
-    // Docked mode is non-interactive — no autoclick.
-    if *mode == DisplayMode::Docked {
-        hold.accum = 0.0;
-        return;
-    }
-    // Released — reset.
-    if !mouse.pressed(MouseButton::Left) {
-        hold.accum = 0.0;
-        return;
-    }
-    // The press itself is the responsibility of input::emit_clicks. Just
-    // start counting toward the next autoclick.
-    if mouse.just_pressed(MouseButton::Left) {
-        hold.accum = 0.0;
-        return;
-    }
-    let Ok(window) = windows.single() else { return };
-    let Some(spec) = cursor_to_spec(window, display_scale.0, scroll.x) else {
-        hold.accum = 0.0;
-        return;
-    };
     let Ok(rock_pos) = rock.single() else { return };
-    if rock_pos.0.distance(spec) > BIG_ROCK_CLICK_R {
-        // Cursor wandered off the rock — pause the timer so a later return
-        // to the rock doesn't fire an immediate click.
-        hold.accum = 0.0;
-        return;
-    }
-    hold.accum += time.delta_secs();
-    while hold.accum >= AUTOCLICK_INTERVAL {
-        hold.accum -= AUTOCLICK_INTERVAL;
-        writer.write(ClickEvent { pos: spec });
-    }
+    run_autoclick(
+        time.delta_secs(),
+        &mouse,
+        windows.single().ok(),
+        display_scale.0,
+        *mode,
+        scroll.x,
+        true,
+        rock_pos.0,
+        BIG_ROCK_CLICK_R,
+        &mut hold.accum,
+        &mut writer,
+    );
 }
 
 fn handle_clicks(

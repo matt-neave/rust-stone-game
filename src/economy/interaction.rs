@@ -24,12 +24,14 @@ use super::layout::*;
 use super::purchase::{button_active, can_afford};
 use super::purchase::{current_worker_cost, is_sold_out, row_visible};
 use super::{
-    BeachcomberHut, Beachcombers, Boatmen, ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo,
-    DetailBody, DetailHeader, FisherHut, Fishermen, Fishes, HoverState, Hut, MinerHut,
-    MinerUpgrades, Miners, PanelChromePart, PanelKind, PanelTag, Pier, Port, PurchaseButton,
-    PurchaseKind, SkimUpgrades, SkimmerHut, Skimmers, StonemasonHut, Stonemasons, UpgradeRes,
-    Workers, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS,
-    HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
+    AquaHut, AutoFishing, BeachcomberHut, Beachcombers, Boatmen, BuildingsRes, ButtonCost,
+    ButtonCount, ButtonLabel, CavePanelGeo, DetailBody, DetailHeader, FisherHut, Fishermen,
+    Fishes, HoverState, Hut, MinerHut, MinerUpgrades, Miners, PanelChromePart, PanelKind,
+    PanelTag, Pier, Port, PurchaseButton, PurchaseKind, ResearchHut, ResearchMission, ResearchRes,
+    SkimUpgrades, SkimmerHut, Skimmers, StonemasonHut, Stonemasons, TreeStorage, UpgradeRes,
+    Workers, CAVE_PANEL_KINDS, HUT_AQUA_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS,
+    HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_RESEARCH_KINDS, HUT_SKIMMER_KINDS,
+    HUT_STONEMASON_KINDS, HUT_TREE_STORAGE_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // ---------------------------------------------------------------------------
@@ -49,10 +51,16 @@ pub(super) fn update_hover(
     sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
     port: Res<Port>,
+    research: ResearchRes,
     cave_geo: Res<CavePanelGeo>,
     scroll: Res<crate::render::CameraScroll>,
     mut hover: ResMut<HoverState>,
 ) {
+    let research_hut = &*research.research;
+    let aqua_hut = &*research.aqua;
+    let auto_fish = &*research.auto_fish;
+    let mission = &*research.mission;
+    let storage = &*research.storage;
     if *mode == DisplayMode::Docked {
         if any_hover(&hover) {
             *hover = HoverState::default();
@@ -75,6 +83,13 @@ pub(super) fn update_hover(
     let fisher_chrome = chrome_hit(cursor, hover.hut_fisher, &hut_fisher_panel_rects());
     let bc_chrome = chrome_hit(cursor, hover.hut_beachcomber, &hut_beachcomber_panel_rects());
     let sm_chrome = chrome_hit(cursor, hover.hut_stonemason, &hut_stonemason_panel_rects());
+    let research_chrome = chrome_hit(cursor, hover.hut_research, &hut_research_panel_rects());
+    let aqua_chrome = chrome_hit(cursor, hover.hut_aqua, &hut_aqua_panel_rects());
+    let tree_storage_chrome = chrome_hit(
+        cursor,
+        hover.hut_tree_storage,
+        &hut_tree_storage_panel_rects(),
+    );
     let pier_chrome = chrome_hit(cursor, hover.pier, &pier_panel_rects());
     let port_chrome = chrome_hit(cursor, hover.port, &port_panel_rects());
 
@@ -85,6 +100,9 @@ pub(super) fn update_hover(
         || fisher_chrome
         || bc_chrome
         || sm_chrome
+        || research_chrome
+        || aqua_chrome
+        || tree_storage_chrome
         || pier_chrome
         || port_chrome;
 
@@ -99,6 +117,13 @@ pub(super) fn update_hover(
     let fisher_building = building_hit(&hut_fisher_building_rects());
     let bc_building = building_hit(&hut_beachcomber_building_rects());
     let sm_building = building_hit(&hut_stonemason_building_rects());
+    let research_building = building_hit(&hut_research_building_rects());
+    let aqua_building = building_hit(&hut_aqua_building_rects());
+    // Broken-store building only registers a hover when the upgrade
+    // is currently relevant — after purchase the whole crate is just
+    // decoration and shouldn't open a panel.
+    let tree_storage_building = (mission.unlocked && !storage.owned)
+        && building_hit(&hut_tree_storage_building_rects());
     let pier_building = building_hit(&pier_building_rects());
     let port_building = building_hit(&port_building_rects());
 
@@ -110,6 +135,9 @@ pub(super) fn update_hover(
     let fisher_zone = resolve(chrome_claim, fisher_chrome, fisher_building);
     let bc_zone = resolve(chrome_claim, bc_chrome, bc_building);
     let sm_zone = resolve(chrome_claim, sm_chrome, sm_building);
+    let research_zone = resolve(chrome_claim, research_chrome, research_building);
+    let aqua_zone = resolve(chrome_claim, aqua_chrome, aqua_building);
+    let tree_storage_zone = resolve(chrome_claim, tree_storage_chrome, tree_storage_building);
     let pier_zone = resolve(chrome_claim, pier_chrome, pier_building);
     let port_zone = resolve(chrome_claim, port_chrome, port_building);
 
@@ -120,7 +148,10 @@ pub(super) fn update_hover(
                 cave_row_at(
                     spec,
                     &cave_geo,
-                    &cave_visible_kinds(&hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port),
+                    &cave_visible_kinds(
+                        &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port, research_hut,
+                        aqua_hut, auto_fish, mission, storage,
+                    ),
                 )
             } else if hut.owned && hut_zone {
                 row_at_hut(spec)
@@ -134,6 +165,12 @@ pub(super) fn update_hover(
                 row_at_hut_beachcomber(spec)
             } else if sm_hut.owned && sm_zone {
                 row_at_hut_stonemason(spec)
+            } else if research_hut.owned && research_zone {
+                row_at_hut_research(spec)
+            } else if aqua_hut.owned && aqua_zone {
+                row_at_hut_aqua(spec, auto_fish)
+            } else if mission.unlocked && !storage.owned && tree_storage_zone {
+                row_at_hut_tree_storage(spec)
             } else if pier.owned && pier_zone {
                 row_at_pier(spec)
             } else if port.owned && port_zone {
@@ -151,6 +188,11 @@ pub(super) fn update_hover(
     if hover.hut_fisher != fisher_zone { hover.hut_fisher = fisher_zone; }
     if hover.hut_beachcomber != bc_zone { hover.hut_beachcomber = bc_zone; }
     if hover.hut_stonemason != sm_zone { hover.hut_stonemason = sm_zone; }
+    if hover.hut_research != research_zone { hover.hut_research = research_zone; }
+    if hover.hut_aqua != aqua_zone { hover.hut_aqua = aqua_zone; }
+    if hover.hut_tree_storage != tree_storage_zone {
+        hover.hut_tree_storage = tree_storage_zone;
+    }
     if hover.pier != pier_zone { hover.pier = pier_zone; }
     if hover.port != port_zone { hover.port = port_zone; }
     if hover.row != row { hover.row = row; }
@@ -164,6 +206,9 @@ fn any_hover(h: &HoverState) -> bool {
         || h.hut_fisher
         || h.hut_beachcomber
         || h.hut_stonemason
+        || h.hut_research
+        || h.hut_aqua
+        || h.hut_tree_storage
         || h.pier
         || h.port
         || h.row.is_some()
@@ -217,11 +262,21 @@ fn cave_visible_kinds(
     fisher_hut: &FisherHut,
     pier: &Pier,
     port: &Port,
+    research_hut: &ResearchHut,
+    aqua_hut: &AquaHut,
+    auto_fish: &AutoFishing,
+    mission: &ResearchMission,
+    storage: &TreeStorage,
 ) -> Vec<PurchaseKind> {
     CAVE_PANEL_KINDS
         .iter()
         .copied()
-        .filter(|k| row_visible(*k, hut, miner_hut, skimmer_hut, fisher_hut, pier, port))
+        .filter(|k| {
+            row_visible(
+                *k, hut, miner_hut, skimmer_hut, fisher_hut, pier, port, research_hut, aqua_hut,
+                auto_fish, mission, storage,
+            )
+        })
         .collect()
 }
 
@@ -302,6 +357,54 @@ fn row_at_hut_beachcomber(spec: Vec2) -> Option<PurchaseKind> {
     )
 }
 
+fn row_at_hut_research(spec: Vec2) -> Option<PurchaseKind> {
+    row_at_panel(
+        spec,
+        hut_research_panel_pos(),
+        HUT_PANEL_W,
+        HUT_RESEARCH_KINDS,
+        &hut_research_buy_row_y,
+    )
+}
+
+fn row_at_hut_aqua(spec: Vec2, auto_fish: &AutoFishing) -> Option<PurchaseKind> {
+    // The toggle row is hidden until AutoFishing is owned, so do
+    // hit-testing against the visible subset only.
+    let visible: Vec<PurchaseKind> = HUT_AQUA_KINDS
+        .iter()
+        .copied()
+        .filter(|k| match k {
+            PurchaseKind::AutoFishingToggle => auto_fish.owned,
+            _ => true,
+        })
+        .collect();
+    let half_h = ROW_HEIGHT * 0.5;
+    let panel_pos = hut_aqua_panel_pos();
+    let half_w = (HUT_PANEL_W - PANEL_INSET * 2.0) * 0.5;
+    if (spec.x - panel_pos.x).abs() > half_w {
+        return None;
+    }
+    for (i, kind) in visible.iter().enumerate() {
+        // Slot index in the visible list maps to absolute row y via
+        // the same formula spawn uses; since AutoFishingToggle only
+        // appears after AutoFishing exists, slot[1] is always valid.
+        if (spec.y - hut_aqua_buy_row_y(i)).abs() <= half_h {
+            return Some(*kind);
+        }
+    }
+    None
+}
+
+fn row_at_hut_tree_storage(spec: Vec2) -> Option<PurchaseKind> {
+    row_at_panel(
+        spec,
+        hut_tree_storage_panel_pos(),
+        HUT_PANEL_W,
+        HUT_TREE_STORAGE_KINDS,
+        &hut_tree_storage_buy_row_y,
+    )
+}
+
 fn row_at_hut_stonemason(spec: Vec2) -> Option<PurchaseKind> {
     row_at_panel(
         spec,
@@ -352,6 +455,7 @@ pub(super) fn update_chrome_visibility(
     sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
     port: Res<Port>,
+    research: ResearchRes,
     hover: Res<HoverState>,
     mut chrome_q: Query<(
         &PanelTag,
@@ -361,6 +465,8 @@ pub(super) fn update_chrome_visibility(
         &mut Visibility,
     )>,
 ) {
+    let research_hut = &*research.research;
+    let aqua_hut = &*research.aqua;
     if !hut.is_changed()
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
@@ -369,6 +475,9 @@ pub(super) fn update_chrome_visibility(
         && !sm_hut.is_changed()
         && !pier.is_changed()
         && !port.is_changed()
+        && !research.research.is_changed()
+        && !research.aqua.is_changed()
+        && !research.auto_fish.is_changed()
         && !hover.is_changed()
     {
         return;
@@ -382,6 +491,9 @@ pub(super) fn update_chrome_visibility(
             PanelKind::HutFisher => fisher_hut.owned && hover.hut_fisher,
             PanelKind::HutBeachcomber => bc_hut.owned && hover.hut_beachcomber,
             PanelKind::HutStonemason => sm_hut.owned && hover.hut_stonemason,
+            PanelKind::HutResearch => research_hut.owned && hover.hut_research,
+            PanelKind::HutAqua => aqua_hut.owned && hover.hut_aqua,
+            PanelKind::TreeStorage => hover.hut_tree_storage,
             PanelKind::Pier => pier.owned && hover.pier,
             PanelKind::Port => port.owned && hover.port,
         }
@@ -421,6 +533,7 @@ pub(super) fn update_row_visibility(
     sm_hut: Res<StonemasonHut>,
     pier: Res<Pier>,
     port: Res<Port>,
+    research: ResearchRes,
     workers: Res<Workers>,
     skims: Res<Skims>,
     hover: Res<HoverState>,
@@ -431,6 +544,11 @@ pub(super) fn update_row_visibility(
         Query<(&ButtonCount, &mut Visibility), Without<PanelTag>>,
     )>,
 ) {
+    let research_hut = &*research.research;
+    let aqua_hut = &*research.aqua;
+    let auto_fish = &*research.auto_fish;
+    let mission = &*research.mission;
+    let storage = &*research.storage;
     if !hut.is_changed()
         && !miner_hut.is_changed()
         && !skimmer_hut.is_changed()
@@ -439,6 +557,11 @@ pub(super) fn update_row_visibility(
         && !sm_hut.is_changed()
         && !pier.is_changed()
         && !port.is_changed()
+        && !research.research.is_changed()
+        && !research.aqua.is_changed()
+        && !research.auto_fish.is_changed()
+        && !research.mission.is_changed()
+        && !research.storage.is_changed()
         && !workers.is_changed()
         && !skims.is_changed()
         && !hover.is_changed()
@@ -454,13 +577,19 @@ pub(super) fn update_row_visibility(
             PanelKind::HutFisher => fisher_hut.owned && hover.hut_fisher,
             PanelKind::HutBeachcomber => bc_hut.owned && hover.hut_beachcomber,
             PanelKind::HutStonemason => sm_hut.owned && hover.hut_stonemason,
+            PanelKind::HutResearch => research_hut.owned && hover.hut_research,
+            PanelKind::HutAqua => aqua_hut.owned && hover.hut_aqua,
+            PanelKind::TreeStorage => hover.hut_tree_storage,
             PanelKind::Pier => pier.owned && hover.pier,
             PanelKind::Port => port.owned && hover.port,
         }
     };
     let visible = |k: PurchaseKind| -> bool {
         panel_open(k)
-            && row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port)
+            && row_visible(
+                k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port, research_hut,
+                aqua_hut, auto_fish, mission, storage,
+            )
     };
     for (btn, mut v) in &mut rows.p0() {
         let target = vis(visible(btn.kind));
@@ -489,7 +618,11 @@ fn panel_for(k: PurchaseKind) -> PanelKind {
         | PurchaseKind::HutFisher
         | PurchaseKind::HutBeachcomber
         | PurchaseKind::HutStonemason
+        | PurchaseKind::HutResearch
         | PurchaseKind::Pier => PanelKind::Cave,
+        PurchaseKind::HutAqua | PurchaseKind::ResearchMission => PanelKind::HutResearch,
+        PurchaseKind::TreeStorage => PanelKind::TreeStorage,
+        PurchaseKind::AutoFishing | PurchaseKind::AutoFishingToggle => PanelKind::HutAqua,
         PurchaseKind::Worker => PanelKind::Hut,
         PurchaseKind::Miner | PurchaseKind::MinerDamage => PanelKind::HutMiner,
         PurchaseKind::Skimmer | PurchaseKind::SkimUpgrade => PanelKind::HutSkimmer,
@@ -516,14 +649,8 @@ fn vis(b: bool) -> Visibility {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn update_button_visuals(
     skims: Res<Skims>,
-    hut: Res<Hut>,
-    miner_hut: Res<MinerHut>,
-    skimmer_hut: Res<SkimmerHut>,
-    fisher_hut: Res<FisherHut>,
-    bc_hut: Res<BeachcomberHut>,
-    sm_hut: Res<StonemasonHut>,
-    pier: Res<Pier>,
-    port: Res<Port>,
+    wood: Res<crate::currency::Wood>,
+    bld: BuildingsRes,
     workers: Res<Workers>,
     upgrades: UpgradeRes,
     hover: Res<HoverState>,
@@ -531,15 +658,33 @@ pub(super) fn update_button_visuals(
     mut label_q: Query<(&ButtonLabel, &mut TextColor), Without<ButtonCost>>,
     mut cost_q: Query<(&ButtonCost, &mut TextColor), Without<ButtonLabel>>,
 ) {
+    let hut = &*bld.hut;
+    let miner_hut = &*bld.miner;
+    let skimmer_hut = &*bld.skimmer;
+    let fisher_hut = &*bld.fisher;
+    let bc_hut = &*bld.bc;
+    let sm_hut = &*bld.sm;
+    let pier = &*bld.pier;
+    let port = &*bld.port;
+    let research_hut = &*bld.research;
+    let aqua_hut = &*bld.aqua;
+    let auto_fish = &*bld.auto_fish;
+    let mission = &*bld.research_mission;
+    let storage = &*bld.tree_storage;
     if !skims.is_changed()
-        && !hut.is_changed()
-        && !miner_hut.is_changed()
-        && !skimmer_hut.is_changed()
-        && !fisher_hut.is_changed()
-        && !bc_hut.is_changed()
-        && !sm_hut.is_changed()
-        && !pier.is_changed()
-        && !port.is_changed()
+        && !bld.hut.is_changed()
+        && !bld.miner.is_changed()
+        && !bld.skimmer.is_changed()
+        && !bld.fisher.is_changed()
+        && !bld.bc.is_changed()
+        && !bld.sm.is_changed()
+        && !bld.pier.is_changed()
+        && !bld.port.is_changed()
+        && !bld.research.is_changed()
+        && !bld.aqua.is_changed()
+        && !bld.auto_fish.is_changed()
+        && !bld.research_mission.is_changed()
+        && !bld.tree_storage.is_changed()
         && !workers.is_changed()
         && !upgrades.skim.is_changed()
         && !upgrades.miner.is_changed()
@@ -549,22 +694,27 @@ pub(super) fn update_button_visuals(
     }
     let active = |k: PurchaseKind| -> bool {
         button_active(
-            k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port, &hover,
+            k, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port, research_hut,
+            aqua_hut, auto_fish, mission, storage, &hover,
         )
     };
     let afford = |k: PurchaseKind| -> bool {
         can_afford(
-            k, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
-            &workers, &upgrades.skim, &upgrades.miner,
+            k, &skims, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port,
+            research_hut, aqua_hut, auto_fish, mission, storage, &workers, &upgrades.skim,
+            &upgrades.miner, &wood,
         )
     };
     let visible = |k: PurchaseKind| -> bool {
-        row_visible(k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port)
+        row_visible(
+            k, hut, miner_hut, skimmer_hut, fisher_hut, pier, port, research_hut, aqua_hut,
+            auto_fish, mission, storage,
+        )
     };
     let sold_out = |k: PurchaseKind| -> bool {
         is_sold_out(
-            k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
-            &upgrades.skim, &upgrades.miner,
+            k, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port, research_hut,
+            aqua_hut, auto_fish, mission, storage, &upgrades.skim, &upgrades.miner,
         )
     };
     for (btn, mut sprite) in &mut bg_q {
@@ -615,6 +765,7 @@ pub(super) fn update_count_text(
     beachcombers: Res<Beachcombers>,
     stonemasons: Res<Stonemasons>,
     boatmen: Res<Boatmen>,
+    auto_fish: Res<AutoFishing>,
     mut q: Query<(&ButtonCount, &mut Text2d)>,
 ) {
     if !workers.is_changed()
@@ -627,6 +778,7 @@ pub(super) fn update_count_text(
         && !beachcombers.is_changed()
         && !stonemasons.is_changed()
         && !boatmen.is_changed()
+        && !auto_fish.is_changed()
     {
         return;
     }
@@ -649,6 +801,12 @@ pub(super) fn update_count_text(
             | PurchaseKind::HutFisher
             | PurchaseKind::HutBeachcomber
             | PurchaseKind::HutStonemason
+            | PurchaseKind::HutResearch
+            | PurchaseKind::HutAqua
+            | PurchaseKind::AutoFishing
+            | PurchaseKind::AutoFishingToggle
+            | PurchaseKind::ResearchMission
+            | PurchaseKind::TreeStorage
             | PurchaseKind::Pier
             | PurchaseKind::Port => String::new(),
         };
@@ -661,15 +819,27 @@ pub(super) fn update_count_text(
 /// rewrite its cost text whenever `Workers` changes.
 pub(super) fn update_dynamic_cost_text(
     workers: Res<Workers>,
+    auto_fish: Res<AutoFishing>,
     mut q: Query<(&ButtonCost, &mut Text2d)>,
 ) {
-    if !workers.is_changed() {
+    if !workers.is_changed() && !auto_fish.is_changed() {
         return;
     }
     let worker_label = format!("{}", current_worker_cost(&workers));
+    let toggle_label = if auto_fish.enabled { "ON" } else { "OFF" };
     for (cost, mut text) in &mut q {
-        if cost.0 == PurchaseKind::Worker && text.0 != worker_label {
-            text.0 = worker_label.clone();
+        match cost.0 {
+            PurchaseKind::Worker => {
+                if text.0 != worker_label {
+                    text.0 = worker_label.clone();
+                }
+            }
+            PurchaseKind::AutoFishingToggle => {
+                if text.0 != toggle_label {
+                    text.0 = toggle_label.to_string();
+                }
+            }
+            _ => {}
         }
     }
 }
@@ -779,6 +949,36 @@ fn detail_for(kind: PurchaseKind, afford: bool, sold_out: bool) -> Detail {
             },
             body: "Wooden dock east of\nthe pier. Unlocks the\nBoatman conversion.",
         },
+        PurchaseKind::HutResearch => Detail {
+            header: building_header(afford, sold_out),
+            body: "Research facility.\n\n- Unlocks the\n  Aqua Center",
+        },
+        PurchaseKind::HutAqua => Detail {
+            header: building_header(afford, sold_out),
+            body: "Aqua Center.\n\n- Unlocks auto\n  fishing",
+        },
+        PurchaseKind::AutoFishing => Detail {
+            header: building_header(afford, sold_out),
+            body: "Auto-buys fish\nbuckets when stock\ndips below 100.\n\nToggle on the row\nbelow.",
+        },
+        PurchaseKind::AutoFishingToggle => Detail {
+            header: "Toggle",
+            body: "Click to toggle\nauto-fishing on or\noff.",
+        },
+        PurchaseKind::ResearchMission => Detail {
+            header: building_header(afford, sold_out),
+            body: "Research mission.\n\n- Sends a scout west\n- Costs 1 worker\n- Reveals the tree",
+        },
+        PurchaseKind::TreeStorage => Detail {
+            header: if sold_out {
+                "Purchased"
+            } else if afford {
+                "Buy!"
+            } else {
+                "Need 50 skims"
+            },
+            body: "Tree storage unit.\n\n- Collects wood\n  pieces on click",
+        },
     }
 }
 
@@ -786,29 +986,41 @@ fn detail_for(kind: PurchaseKind, afford: bool, sold_out: bool) -> Detail {
 pub(super) fn update_detail_text(
     hover: Res<HoverState>,
     skims: Res<Skims>,
-    hut: Res<Hut>,
-    miner_hut: Res<MinerHut>,
-    skimmer_hut: Res<SkimmerHut>,
-    fisher_hut: Res<FisherHut>,
-    bc_hut: Res<BeachcomberHut>,
-    sm_hut: Res<StonemasonHut>,
-    pier: Res<Pier>,
-    port: Res<Port>,
+    bld: BuildingsRes,
     workers: Res<Workers>,
     upgrades: UpgradeRes,
+    wood: Res<crate::currency::Wood>,
     mut header_q: Query<(&DetailHeader, &mut Text2d, &mut TextColor), Without<DetailBody>>,
     mut body_q: Query<(&DetailBody, &mut Text2d, &mut TextColor), Without<DetailHeader>>,
 ) {
+    let hut = &*bld.hut;
+    let miner_hut = &*bld.miner;
+    let skimmer_hut = &*bld.skimmer;
+    let fisher_hut = &*bld.fisher;
+    let bc_hut = &*bld.bc;
+    let sm_hut = &*bld.sm;
+    let pier = &*bld.pier;
+    let port = &*bld.port;
+    let research_hut = &*bld.research;
+    let aqua_hut = &*bld.aqua;
+    let auto_fish = &*bld.auto_fish;
+    let mission = &*bld.research_mission;
+    let storage = &*bld.tree_storage;
     if !hover.is_changed()
         && !skims.is_changed()
-        && !hut.is_changed()
-        && !miner_hut.is_changed()
-        && !skimmer_hut.is_changed()
-        && !fisher_hut.is_changed()
-        && !bc_hut.is_changed()
-        && !sm_hut.is_changed()
-        && !pier.is_changed()
-        && !port.is_changed()
+        && !bld.hut.is_changed()
+        && !bld.miner.is_changed()
+        && !bld.skimmer.is_changed()
+        && !bld.fisher.is_changed()
+        && !bld.bc.is_changed()
+        && !bld.sm.is_changed()
+        && !bld.pier.is_changed()
+        && !bld.port.is_changed()
+        && !bld.research.is_changed()
+        && !bld.aqua.is_changed()
+        && !bld.auto_fish.is_changed()
+        && !bld.research_mission.is_changed()
+        && !bld.tree_storage.is_changed()
         && !workers.is_changed()
         && !upgrades.skim.is_changed()
         && !upgrades.miner.is_changed()
@@ -822,12 +1034,13 @@ pub(super) fn update_detail_text(
             return None;
         }
         let afford = can_afford(
-            kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier,
-            &port, &workers, &upgrades.skim, &upgrades.miner,
+            kind, &skims, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port,
+            research_hut, aqua_hut, auto_fish, mission, storage, &workers, &upgrades.skim,
+            &upgrades.miner, &wood,
         );
         let sold_out = is_sold_out(
-            kind, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier, &port,
-            &upgrades.skim, &upgrades.miner,
+            kind, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port,
+            research_hut, aqua_hut, auto_fish, mission, storage, &upgrades.skim, &upgrades.miner,
         );
         Some(detail_for(kind, afford, sold_out))
     };
@@ -840,6 +1053,9 @@ pub(super) fn update_detail_text(
         PanelKind::HutFisher,
         PanelKind::HutBeachcomber,
         PanelKind::HutStonemason,
+        PanelKind::HutResearch,
+        PanelKind::HutAqua,
+        PanelKind::TreeStorage,
         PanelKind::Pier,
         PanelKind::Port,
     ] {

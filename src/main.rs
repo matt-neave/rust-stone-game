@@ -49,7 +49,7 @@ use crate::effects::{FloatingTextPlugin, ParticlesPlugin, RipplePlugin};
 use crate::render::shapes::ShapesPlugin;
 use crate::render::{DockPlugin, RenderPlugin, RockMaterialPlugin, ScrollPlugin};
 use crate::rocks::{BigRockPlugin, SandDentPlugin, ShadowPlugin, SmallRockPlugin};
-use crate::structures::{HutPlugin, PierPlugin, PortPlugin};
+use crate::structures::{HutPlugin, PierPlugin, PortPlugin, ResearchPlugin, WoodPlugin};
 use crate::ui::UiPlugin;
 use crate::world::{AmbientPlugin, BgPlugin};
 
@@ -108,5 +108,6 @@ fn main() {
             CrewPlugin,
             ScrollPlugin,
         ))
+        .add_plugins((ResearchPlugin, WoodPlugin))
         .run();
 }

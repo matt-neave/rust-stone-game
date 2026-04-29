@@ -14,6 +14,45 @@ pub const INTERNAL_HEIGHT: f32 = 270.0;
 /// stays anchored to the left side of the world; the rest is open
 /// water.
 pub const WORLD_WIDTH: f32 = 1440.0;
+/// Spec x of the world's left edge. Negative so the playable area
+/// extends *left* of the original 0-anchored canvas; this is where
+/// the standalone tree lives, accessible only by scrolling.
+pub const WORLD_LEFT: f32 = -240.0;
+
+/// Standalone tree placement — sits well to the left of the big
+/// rock so the player has to scroll west to see it. Z_TREE matches
+/// the hut layer so it depth-sorts correctly with crew sprites.
+pub const TREE_X: f32 = -120.0;
+pub const TREE_Y: f32 = 195.0;
+
+/// Tree storage — small wreck/box just east of the tree. Spawned
+/// initially as scattered "broken" rubble after the research mission
+/// cinematic completes; replaced by a whole crate on TreeStorage
+/// purchase.
+pub const TREE_STORAGE_X: f32 = TREE_X + 35.0;
+pub const TREE_STORAGE_Y: f32 = TREE_Y + 10.0;
+
+/// Research-mission scout cinematic timings + destination.
+/// The scout walks at a normal worker-style pace and stops at the
+/// research hut first (briefing beat with a `!` above their head)
+/// before continuing west to the tree.
+pub const SCOUT_WALK_SPEED: f32 = 28.0;
+pub const SCOUT_AT_HUT_DURATION: f32 = 5.0;
+pub const SCOUT_PRESENT_X: f32 = -30.0;
+pub const SCOUT_PRESENT_Y: f32 = 200.0;
+pub const SCOUT_SPEAK_DURATION: f32 = 3.0;
+pub const SCOUT_PAN_DURATION: f32 = 1.5;
+pub const SCOUT_HOLD_DURATION: f32 = 1.5;
+pub const SCROLL_FOR_SCOUT: f32 = -180.0;
+pub const SCROLL_FOR_TREE: f32 = -240.0;
+
+/// Wood-piece interaction radii + landing-spot bounds (so wood always
+/// stays on sand, never on the water side).
+pub const WOOD_CLICK_R: f32 = 5.0;
+pub const WOOD_LAND_X_MIN: f32 = WORLD_LEFT + 5.0;
+pub const WOOD_LAND_X_MAX: f32 = -50.0;
+pub const WOOD_LAND_Y_MIN: f32 = 160.0;
+pub const WOOD_LAND_Y_MAX: f32 = 250.0;
 
 
 /// X coordinate of the sand/water boundary. Sand is left of this line, water
@@ -39,6 +78,9 @@ pub const BIG_ROCK_H: f32 = 48.0;
 pub const BIG_ROCK_CLICK_R: f32 = 32.0;
 /// Clicks per small-rock spawn (per the spec).
 pub const CLICKS_PER_SMALL_ROCK: u32 = 10;
+/// Clicks on the tree per wood-piece spawn — mirror of the big-rock
+/// click counter, scaled up so wood feels like a chunkier resource.
+pub const CLICKS_PER_WOOD: u32 = 25;
 
 /// Click radius for small rocks. Native sprite size varies by shape (see
 /// `shapes::SmallRockShape::size`); the click hitbox stays a uniform ~9 px
@@ -79,33 +121,40 @@ pub const Z_UI: f32 = 10.0;
 /// — 1 worker + 10 skims — so the cost is a pair (workers, skims).
 pub const HUT_COST: u64 = 10;
 pub const WORKER_COST: u64 = 10;
-/// Pier — second one-time structure, unlocks fish purchases.
-pub const PIER_COST: u64 = 30;
 /// Fish — repeatable, bought from the pier panel. Each purchase is
 /// a *bucket* — one purchase spawns `FISHES_PER_BUCKET` one-shot
 /// fish that despawn after their first rescue.
 pub const FISH_COST: u64 = 5;
 pub const FISHES_PER_BUCKET: u32 = 10;
 
-/// Foragers hut placement — top-left of the sand, well clear of the
-/// big rock (centred at 56,184) and the small-rock landing zone
-/// (x 95-188, y 150-240). Three sibling huts (miner, skimmer, fisher)
-/// sit at the other corners of the sand and unlock alongside it.
+/// Village layout — every hut now lives in the top half of the canvas
+/// (y < 135) so the bottom half stays clear for the small-rock
+/// landing zone (y 150-240) and crew animations on the open sand.
+/// Two columns: foragers stack at x=50, beachcomber stack at x=140.
+/// Y values are staggered between columns by ~15 px so each panel
+/// sits in a clean horizontal strip when its hut is hovered.
 pub const HUT_X: f32 = 50.0;
-pub const HUT_Y: f32 = 100.0;
+pub const HUT_Y: f32 = 30.0;
 pub const HUT_MINER_X: f32 = 50.0;
-pub const HUT_MINER_Y: f32 = 145.0;
+pub const HUT_MINER_Y: f32 = 60.0;
 pub const HUT_SKIMMER_X: f32 = 50.0;
-pub const HUT_SKIMMER_Y: f32 = 220.0;
+pub const HUT_SKIMMER_Y: f32 = 90.0;
 pub const HUT_FISHER_X: f32 = 50.0;
-pub const HUT_FISHER_Y: f32 = 250.0;
-/// Beachcomber and stonemason huts sit just east of the foragers
-/// stack so the row of small hut panels stays visually grouped while
-/// staying clear of the small-rock landing zone.
+pub const HUT_FISHER_Y: f32 = 120.0;
 pub const HUT_BEACHCOMBER_X: f32 = 140.0;
-pub const HUT_BEACHCOMBER_Y: f32 = 75.0;
+pub const HUT_BEACHCOMBER_Y: f32 = 45.0;
 pub const HUT_STONEMASON_X: f32 = 140.0;
-pub const HUT_STONEMASON_Y: f32 = 130.0;
+pub const HUT_STONEMASON_Y: f32 = 75.0;
+/// Research facility + Aqua Center — bottom of the right-hand column.
+pub const HUT_RESEARCH_X: f32 = 140.0;
+pub const HUT_RESEARCH_Y: f32 = 105.0;
+pub const HUT_AQUA_X: f32 = 140.0;
+pub const HUT_AQUA_Y: f32 = 130.0;
+/// AutoFishing target stockpile — the auto-fisher buys buckets while
+/// `Fishes.count` is below this threshold.
+pub const AUTO_FISHING_TARGET: u32 = 100;
+/// Seconds between auto-fishing checks.
+pub const AUTO_FISHING_TICK: f32 = 1.0;
 /// Port — water-side structure, gated behind the pier. Boatmen
 /// launch from here and patrol the ocean.
 pub const PORT_X: f32 = 240.0;

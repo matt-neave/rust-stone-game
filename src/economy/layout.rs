@@ -7,14 +7,16 @@
 use bevy::prelude::*;
 
 use crate::core::constants::{
-    CAVE_W, CAVE_X, CAVE_Y, HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y, HUT_FISHER_X, HUT_FISHER_Y,
-    HUT_MINER_X, HUT_MINER_Y, HUT_ROOF_W, HUT_SKIMMER_X, HUT_SKIMMER_Y, HUT_STONEMASON_X,
-    HUT_STONEMASON_Y, HUT_X, HUT_Y, PIER_X, PIER_Y, PORT_H, PORT_W, PORT_X, PORT_Y,
+    CAVE_W, CAVE_X, CAVE_Y, HUT_AQUA_X, HUT_AQUA_Y, HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y,
+    HUT_FISHER_X, HUT_FISHER_Y, HUT_MINER_X, HUT_MINER_Y, HUT_RESEARCH_X, HUT_RESEARCH_Y,
+    HUT_ROOF_W, HUT_SKIMMER_X, HUT_SKIMMER_Y, HUT_STONEMASON_X, HUT_STONEMASON_Y, HUT_X, HUT_Y,
+    PIER_X, PIER_Y, PORT_H, PORT_W, PORT_X, PORT_Y, TREE_STORAGE_X, TREE_STORAGE_Y,
 };
 
 use super::{
-    CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
-    HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
+    CAVE_PANEL_KINDS, HUT_AQUA_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS,
+    HUT_PANEL_KINDS, HUT_RESEARCH_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS,
+    HUT_TREE_STORAGE_KINDS, PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // ---------------------------------------------------------------------------
@@ -308,6 +310,72 @@ pub fn hut_stonemason_panel_rects() -> [(Vec2, Vec2); 2] {
 }
 pub fn hut_stonemason_buy_row_y(index: usize) -> f32 {
     hut_buy_row_y_from(&hut_stonemason_geo(), index)
+}
+
+// --- Research facility ------------------------------------------------------
+
+fn hut_research_geo() -> HutPanelGeo {
+    hut_geo(
+        Vec2::new(HUT_RESEARCH_X, HUT_RESEARCH_Y),
+        HUT_RESEARCH_KINDS.len(),
+    )
+}
+
+pub fn hut_research_panel_pos() -> Vec2 { hut_research_geo().panel_pos }
+pub fn hut_research_panel_size() -> Vec2 { hut_research_geo().panel_size }
+pub fn hut_research_detail_pos() -> Vec2 { hut_research_geo().detail_pos }
+pub fn hut_research_detail_size() -> Vec2 { hut_research_geo().detail_size }
+pub fn hut_research_building_rects() -> [(Vec2, Vec2); 1] {
+    hut_building_rects_from(&hut_research_geo())
+}
+pub fn hut_research_panel_rects() -> [(Vec2, Vec2); 2] {
+    hut_panel_rects_from(&hut_research_geo())
+}
+pub fn hut_research_buy_row_y(index: usize) -> f32 {
+    hut_buy_row_y_from(&hut_research_geo(), index)
+}
+
+// --- Aqua center ------------------------------------------------------------
+
+fn hut_aqua_geo() -> HutPanelGeo {
+    hut_geo(Vec2::new(HUT_AQUA_X, HUT_AQUA_Y), HUT_AQUA_KINDS.len())
+}
+
+pub fn hut_aqua_panel_pos() -> Vec2 { hut_aqua_geo().panel_pos }
+pub fn hut_aqua_panel_size() -> Vec2 { hut_aqua_geo().panel_size }
+pub fn hut_aqua_detail_pos() -> Vec2 { hut_aqua_geo().detail_pos }
+pub fn hut_aqua_detail_size() -> Vec2 { hut_aqua_geo().detail_size }
+pub fn hut_aqua_building_rects() -> [(Vec2, Vec2); 1] {
+    hut_building_rects_from(&hut_aqua_geo())
+}
+pub fn hut_aqua_panel_rects() -> [(Vec2, Vec2); 2] {
+    hut_panel_rects_from(&hut_aqua_geo())
+}
+pub fn hut_aqua_buy_row_y(index: usize) -> f32 {
+    hut_buy_row_y_from(&hut_aqua_geo(), index)
+}
+
+// --- Tree storage (broken-store building) -----------------------------------
+
+fn hut_tree_storage_geo() -> HutPanelGeo {
+    hut_geo(
+        Vec2::new(TREE_STORAGE_X, TREE_STORAGE_Y),
+        HUT_TREE_STORAGE_KINDS.len(),
+    )
+}
+
+pub fn hut_tree_storage_panel_pos() -> Vec2 { hut_tree_storage_geo().panel_pos }
+pub fn hut_tree_storage_panel_size() -> Vec2 { hut_tree_storage_geo().panel_size }
+pub fn hut_tree_storage_detail_pos() -> Vec2 { hut_tree_storage_geo().detail_pos }
+pub fn hut_tree_storage_detail_size() -> Vec2 { hut_tree_storage_geo().detail_size }
+pub fn hut_tree_storage_building_rects() -> [(Vec2, Vec2); 1] {
+    hut_building_rects_from(&hut_tree_storage_geo())
+}
+pub fn hut_tree_storage_panel_rects() -> [(Vec2, Vec2); 2] {
+    hut_panel_rects_from(&hut_tree_storage_geo())
+}
+pub fn hut_tree_storage_buy_row_y(index: usize) -> f32 {
+    hut_buy_row_y_from(&hut_tree_storage_geo(), index)
 }
 
 // ---------------------------------------------------------------------------

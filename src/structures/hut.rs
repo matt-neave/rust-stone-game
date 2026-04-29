@@ -126,7 +126,14 @@ fn on_purchase(
             | PurchaseKind::Boatman
             | PurchaseKind::Pier
             | PurchaseKind::Port
-            | PurchaseKind::Fish => {}
+            | PurchaseKind::Fish
+            // Research-chain purchases are owned by `structures::research`.
+            | PurchaseKind::HutResearch
+            | PurchaseKind::HutAqua
+            | PurchaseKind::AutoFishing
+            | PurchaseKind::AutoFishingToggle
+            | PurchaseKind::ResearchMission
+            | PurchaseKind::TreeStorage => {}
         }
     }
 }
@@ -169,7 +176,7 @@ fn play_build_sound(sound: &mut MessageWriter<PlaySoundEvent>) {
 
 /// Spawn one hut at `(x, y)` with the given wall color. Roof, door,
 /// eaves are shared across all huts — only the wall tints by role.
-fn spawn_hut_visual(
+pub(crate) fn spawn_hut_visual(
     commands: &mut Commands,
     shapes: &Shapes,
     x: f32,

@@ -38,9 +38,10 @@ mod relayout;
 mod spawn;
 
 pub use purchase::{
-    PurchaseEvent, PurchaseKind, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS,
-    HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, PIER_PANEL_KINDS,
-    PORT_PANEL_KINDS,
+    cost_for, PurchaseEvent, PurchaseKind, CAVE_PANEL_KINDS, HUT_AQUA_KINDS,
+    HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
+    HUT_RESEARCH_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, HUT_TREE_STORAGE_KINDS,
+    PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
 // =====================================================================
@@ -86,6 +87,59 @@ pub struct StonemasonHut {
 
 #[derive(Resource, Default, Debug)]
 pub struct Pier {
+    pub owned: bool,
+}
+
+/// Research facility — gated behind the foragers hut. Sells the
+/// Aqua Center.
+#[derive(Resource, Default, Debug)]
+pub struct ResearchHut {
+    pub owned: bool,
+}
+
+/// Aqua Center — gated behind the research facility. Sells the
+/// AutoFishing upgrade and its toggle.
+#[derive(Resource, Default, Debug)]
+pub struct AquaHut {
+    pub owned: bool,
+}
+
+/// AutoFishing upgrade — once owned, periodically auto-buys fish
+/// buckets while `Fishes.count < AUTO_FISHING_TARGET`. The toggle
+/// row in the aqua-center panel flips `enabled`.
+#[derive(Resource, Debug)]
+pub struct AutoFishing {
+    pub owned: bool,
+    pub enabled: bool,
+}
+
+impl Default for AutoFishing {
+    fn default() -> Self {
+        // Default to enabled the moment it's purchased — the toggle
+        // row is for turning it OFF later if the player wants.
+        Self { owned: false, enabled: true }
+    }
+}
+
+/// Research Mission — one-time, sold by the research facility.
+///
+/// `started` flips true the moment the row is purchased: the scout
+/// crab walks west to investigate the tree. `unlocked` flips true
+/// when the scout finishes its return-and-show cinematic. Until
+/// `unlocked` is true the player can't scroll past x=0, the tree is
+/// hidden, and the wood counter doesn't appear.
+#[derive(Resource, Default, Debug)]
+pub struct ResearchMission {
+    pub started: bool,
+    pub unlocked: bool,
+}
+
+/// Tree Storage — one-time purchase that appears in the research
+/// panel after the mission cinematic completes. Buys an upgraded
+/// storage crate west of the tree so wood pieces auto-deposit on
+/// click instead of skittering to a new ground spot.
+#[derive(Resource, Default, Debug)]
+pub struct TreeStorage {
     pub owned: bool,
 }
 
@@ -166,6 +220,55 @@ pub struct UpgradeRes<'w> {
     pub miner: Res<'w, MinerUpgrades>,
 }
 
+/// Bundled access to the research-chain resources. Used by the
+/// purchase / interaction systems whose arg counts are at Bevy's
+/// system-param arity ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct ResearchRes<'w> {
+    pub research: Res<'w, ResearchHut>,
+    pub aqua: Res<'w, AquaHut>,
+    pub auto_fish: Res<'w, AutoFishing>,
+    pub mission: Res<'w, ResearchMission>,
+    pub storage: Res<'w, TreeStorage>,
+}
+
+/// Bundled cave-panel gating resources — the four cave-row prereqs +
+/// the research-chain resources. Used by the relayout / hover systems
+/// to fit under Bevy's system-param arity ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct CaveGateRes<'w> {
+    pub hut: Res<'w, Hut>,
+    pub miner: Res<'w, MinerHut>,
+    pub skimmer: Res<'w, SkimmerHut>,
+    pub fisher: Res<'w, FisherHut>,
+    pub pier: Res<'w, Pier>,
+    pub port: Res<'w, Port>,
+    pub research: Res<'w, ResearchHut>,
+    pub aqua: Res<'w, AquaHut>,
+    pub auto_fish: Res<'w, AutoFishing>,
+    pub mission: Res<'w, ResearchMission>,
+    pub storage: Res<'w, TreeStorage>,
+}
+
+/// Bundled access to every per-building `owned` resource — used by the
+/// purchase / interaction systems to fit under Bevy's arity ceiling.
+#[derive(bevy::ecs::system::SystemParam)]
+pub struct BuildingsRes<'w> {
+    pub hut: Res<'w, Hut>,
+    pub miner: Res<'w, MinerHut>,
+    pub skimmer: Res<'w, SkimmerHut>,
+    pub fisher: Res<'w, FisherHut>,
+    pub bc: Res<'w, BeachcomberHut>,
+    pub sm: Res<'w, StonemasonHut>,
+    pub pier: Res<'w, Pier>,
+    pub port: Res<'w, Port>,
+    pub research: Res<'w, ResearchHut>,
+    pub aqua: Res<'w, AquaHut>,
+    pub auto_fish: Res<'w, AutoFishing>,
+    pub research_mission: Res<'w, ResearchMission>,
+    pub tree_storage: Res<'w, TreeStorage>,
+}
+
 /// Cursor-over-structure state. One flag per building (and each
 /// covers the structure + its panel + its detail panel as a union of
 /// rects, so panels stay visible while the cursor is over the panel).
@@ -179,6 +282,9 @@ pub struct HoverState {
     pub hut_fisher: bool,
     pub hut_beachcomber: bool,
     pub hut_stonemason: bool,
+    pub hut_research: bool,
+    pub hut_aqua: bool,
+    pub hut_tree_storage: bool,
     pub pier: bool,
     pub port: bool,
     pub row: Option<PurchaseKind>,
@@ -218,6 +324,11 @@ pub enum PanelKind {
     HutFisher,
     HutBeachcomber,
     HutStonemason,
+    HutResearch,
+    HutAqua,
+    /// The standalone tree-storage building west of the canvas. Its
+    /// panel sits east of the broken store, pointing back at it.
+    TreeStorage,
     Pier,
     Port,
 }
@@ -306,6 +417,11 @@ impl Plugin for EconomyPlugin {
             .init_resource::<StonemasonHut>()
             .init_resource::<Pier>()
             .init_resource::<Port>()
+            .init_resource::<ResearchHut>()
+            .init_resource::<AquaHut>()
+            .init_resource::<AutoFishing>()
+            .init_resource::<ResearchMission>()
+            .init_resource::<TreeStorage>()
             .init_resource::<Beachcombers>()
             .init_resource::<Stonemasons>()
             .init_resource::<Boatmen>()

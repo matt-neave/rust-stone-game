@@ -14,6 +14,12 @@ use crate::render::{
     CameraScroll, DisplayMode, DisplayScale, DockButtonHover, MuteButtonHover,
 };
 
+/// Hold-to-autoclick rate — 4 clicks per second. Synthetic clicks fire on
+/// a fixed cadence after the initial press, so a player can stockpile by
+/// just holding LMB on a click target. Shared by every "click target with
+/// hold support" — big rock, tree, etc.
+pub const AUTOCLICK_INTERVAL: f32 = 0.25;
+
 #[derive(Message)]
 pub struct ClickEvent {
     /// Click position in spec coordinates.
@@ -58,6 +64,53 @@ fn emit_clicks(
         return;
     };
     writer.write(ClickEvent { pos: spec });
+}
+
+/// Run one frame of "hold-to-autoclick on a circular target" logic.
+///
+/// Used identically by the big rock and the tree. The caller owns the
+/// per-target accumulator + window/scale/scroll lookups; this helper
+/// just folds together the bookkeeping that's identical between
+/// targets — gating, hit-test, accumulator advance, and synthetic
+/// `ClickEvent` emission at `AUTOCLICK_INTERVAL` cadence. The initial
+/// press itself is still owned by `emit_clicks` (so we don't double-
+/// fire on the just-pressed frame).
+#[allow(clippy::too_many_arguments)]
+pub fn run_autoclick(
+    dt: f32,
+    mouse: &ButtonInput<MouseButton>,
+    window: Option<&Window>,
+    display_scale: f32,
+    mode: DisplayMode,
+    scroll_x: f32,
+    enabled: bool,
+    target: Vec2,
+    radius: f32,
+    accum: &mut f32,
+    writer: &mut MessageWriter<ClickEvent>,
+) {
+    if mode == DisplayMode::Docked || !enabled || !mouse.pressed(MouseButton::Left) {
+        *accum = 0.0;
+        return;
+    }
+    if mouse.just_pressed(MouseButton::Left) {
+        *accum = 0.0;
+        return;
+    }
+    let Some(window) = window else { return };
+    let Some(spec) = cursor_to_spec(window, display_scale, scroll_x) else {
+        *accum = 0.0;
+        return;
+    };
+    if target.distance(spec) > radius {
+        *accum = 0.0;
+        return;
+    }
+    *accum += dt;
+    while *accum >= AUTOCLICK_INTERVAL {
+        *accum -= AUTOCLICK_INTERVAL;
+        writer.write(ClickEvent { pos: spec });
+    }
 }
 
 /// Convert a window's cursor position to spec (internal-canvas) coordinates,

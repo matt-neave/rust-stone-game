@@ -31,21 +31,15 @@ use super::layout::{
 };
 use super::purchase::row_visible;
 use super::{
-    ButtonCost, ButtonCount, ButtonLabel, CavePanelGeo, DetailBody, DetailHeader, FisherHut, Hut,
-    MinerHut, PanelChromePart, PanelKind, PanelTag, Pier, Port, PurchaseButton, PurchaseKind,
-    SkimmerHut, CAVE_PANEL_KINDS,
+    ButtonCost, ButtonCount, ButtonLabel, CaveGateRes, CavePanelGeo, DetailBody, DetailHeader,
+    PanelChromePart, PanelKind, PanelTag, PurchaseButton, PurchaseKind, CAVE_PANEL_KINDS,
 };
 
 /// Run the cave panel relayout — recompute geometry, write
 /// `CavePanelGeo`, and reposition every cave chrome / row entity.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn relayout_cave_panel(
-    hut: Res<Hut>,
-    miner_hut: Res<MinerHut>,
-    skimmer_hut: Res<SkimmerHut>,
-    fisher_hut: Res<FisherHut>,
-    pier: Res<Pier>,
-    port: Res<Port>,
+    gate: CaveGateRes,
     mut geo: ResMut<CavePanelGeo>,
     mut chrome_sprites: Query<
         (&PanelTag, &PanelChromePart, &mut Pos, &mut Sprite),
@@ -82,12 +76,28 @@ pub(super) fn relayout_cave_panel(
 ) {
     // Skip the work entirely if no resource that affects the cave's
     // visible-row set has changed since last frame.
-    if !hut.is_changed()
-        && !miner_hut.is_changed()
-        && !skimmer_hut.is_changed()
-        && !fisher_hut.is_changed()
-        && !pier.is_changed()
-        && !port.is_changed()
+    let hut = &*gate.hut;
+    let miner_hut = &*gate.miner;
+    let skimmer_hut = &*gate.skimmer;
+    let fisher_hut = &*gate.fisher;
+    let pier = &*gate.pier;
+    let port = &*gate.port;
+    let research_hut = &*gate.research;
+    let aqua_hut = &*gate.aqua;
+    let auto_fish = &*gate.auto_fish;
+    let mission = &*gate.mission;
+    let storage = &*gate.storage;
+    if !gate.hut.is_changed()
+        && !gate.miner.is_changed()
+        && !gate.skimmer.is_changed()
+        && !gate.fisher.is_changed()
+        && !gate.pier.is_changed()
+        && !gate.port.is_changed()
+        && !gate.research.is_changed()
+        && !gate.aqua.is_changed()
+        && !gate.auto_fish.is_changed()
+        && !gate.mission.is_changed()
+        && !gate.storage.is_changed()
     {
         // First-frame initialisation: the resource starts at zeroed
         // defaults, so still run once if the count is zero.
@@ -99,7 +109,12 @@ pub(super) fn relayout_cave_panel(
     let visible: Vec<PurchaseKind> = CAVE_PANEL_KINDS
         .iter()
         .copied()
-        .filter(|k| row_visible(*k, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &pier, &port))
+        .filter(|k| {
+            row_visible(
+                *k, hut, miner_hut, skimmer_hut, fisher_hut, pier, port, research_hut, aqua_hut,
+                auto_fish, mission, storage,
+            )
+        })
         .collect();
     let count = visible.len();
     if count == 0 {

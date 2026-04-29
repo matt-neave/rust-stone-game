@@ -131,6 +131,15 @@ pub struct Shapes {
     pub cave_body: Handle<Image>,
     /// Cave opening — small dark ellipse drawn over the lower body.
     pub cave_opening: Handle<Image>,
+    /// Big tree foliage — irregular green blob, ~32×28.
+    pub tree_foliage: Handle<Image>,
+    /// Tree foliage highlight — slightly smaller blob baked off-center
+    /// so the lit side reads brighter.
+    pub tree_foliage_light: Handle<Image>,
+    /// 6×3 horizontally-elongated rounded log silhouette — used by
+    /// freshly-spawned wood pieces so they read as little tree chunks
+    /// rather than featureless brown squares.
+    pub log: Handle<Image>,
 }
 
 impl Shapes {
@@ -309,6 +318,40 @@ fn build_shapes(mut shapes: ResMut<Shapes>, mut images: ResMut<Assets<Image>>) {
     // Opening — a 7×5 dark ellipse drawn over the lower-centre of the
     // body. Reads as the mouth of the cave against the lighter rock.
     shapes.cave_opening = images.add(ellipse_image(7, 5));
+
+    // Tree foliage — overlapping circles for an organic blob. The
+    // larger blob is the main canopy; the smaller "light" image
+    // stamps the upper-right with a brighter green.
+    shapes.tree_foliage = images.add(boulder_image(
+        32,
+        28,
+        &[
+            (16.0, 14.0, 11.0),
+            (10.0, 10.0, 8.0),
+            (22.0, 11.0, 8.0),
+            (16.0, 6.0, 7.0),
+            (12.0, 18.0, 7.0),
+            (22.0, 18.0, 6.5),
+        ],
+    ));
+    // Log silhouette — short rounded bar so wood pieces read as
+    // little fallen logs rather than 3×3 squares. Tinted with
+    // TREE_TRUNK at the sprite-color step.
+    shapes.log = images.add(pattern_image(&[
+        ".XXXX.",
+        "XXXXXX",
+        ".XXXX.",
+    ]));
+
+    shapes.tree_foliage_light = images.add(boulder_image(
+        32,
+        28,
+        &[
+            (20.0, 9.0, 6.0),
+            (24.0, 12.0, 5.0),
+            (16.0, 7.0, 4.5),
+        ],
+    ));
 
     // Cloud shadow — irregular fluffy blob. Same multi-circle approach as the
     // big rock, just stretched into a horizontally-elongated cloud shape.

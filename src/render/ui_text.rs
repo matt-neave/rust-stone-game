@@ -15,6 +15,7 @@ use bevy::prelude::*;
 
 use crate::core::constants::{INTERNAL_HEIGHT, INTERNAL_WIDTH};
 use crate::render::pipeline::DisplayScale;
+use crate::render::scroll::{CameraScroll, ScreenFixedText};
 
 #[derive(Component, Clone, Copy)]
 pub struct UiText {
@@ -25,11 +26,23 @@ pub struct UiText {
 
 pub(super) fn sync_ui_text(
     display_scale: Res<DisplayScale>,
-    mut q: Query<(&UiText, &mut Transform, &mut TextFont)>,
+    scroll: Res<CameraScroll>,
+    mut q: Query<(&UiText, &mut Transform, &mut TextFont, Has<ScreenFixedText>)>,
 ) {
     let s = display_scale.0.max(1.0);
-    for (ui, mut tf, mut font) in &mut q {
-        tf.translation.x = (ui.spec_pos.x - INTERNAL_WIDTH * 0.5) * s;
+    for (ui, mut tf, mut font, screen_fixed) in &mut q {
+        // World-anchored text (panel labels, rock click counter, etc.)
+        // has a spec_pos in *world* spec coords, so we subtract the
+        // camera scroll to keep it visually attached to its target as
+        // the world scrolls underneath the fixed UI camera. HUD text
+        // (`ScreenFixedText`) skips that subtraction so it stays
+        // glued to the screen.
+        let spec_x = if screen_fixed {
+            ui.spec_pos.x
+        } else {
+            ui.spec_pos.x - scroll.x
+        };
+        tf.translation.x = (spec_x - INTERNAL_WIDTH * 0.5) * s;
         tf.translation.y = (INTERNAL_HEIGHT * 0.5 - ui.spec_pos.y) * s;
         tf.translation.z = ui.z;
         let new_size = (ui.spec_font_size * s).max(1.0);

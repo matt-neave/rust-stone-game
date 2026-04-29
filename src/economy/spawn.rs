@@ -31,8 +31,9 @@ use crate::render::{UiText, UI_LAYER};
 use super::layout::*;
 use super::{
     ButtonCost, ButtonCount, ButtonLabel, DetailBody, DetailHeader, PanelChromePart, PanelKind,
-    PanelTag, PurchaseButton, PurchaseKind, CAVE_PANEL_KINDS, HUT_BEACHCOMBER_KINDS,
-    HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS,
+    PanelTag, PurchaseButton, PurchaseKind, CAVE_PANEL_KINDS, HUT_AQUA_KINDS,
+    HUT_BEACHCOMBER_KINDS, HUT_FISHER_KINDS, HUT_MINER_KINDS, HUT_PANEL_KINDS,
+    HUT_RESEARCH_KINDS, HUT_SKIMMER_KINDS, HUT_STONEMASON_KINDS, HUT_TREE_STORAGE_KINDS,
     PIER_PANEL_KINDS, PORT_PANEL_KINDS,
 };
 
@@ -120,6 +121,42 @@ pub(super) fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>) {
         hut_stonemason_detail_size(),
         HUT_STONEMASON_KINDS,
         &hut_stonemason_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
+        PanelKind::HutResearch,
+        "RESEARCH",
+        hut_research_panel_pos(),
+        hut_research_panel_size(),
+        hut_research_detail_pos(),
+        hut_research_detail_size(),
+        HUT_RESEARCH_KINDS,
+        &hut_research_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
+        PanelKind::HutAqua,
+        "AQUA  CENTER",
+        hut_aqua_panel_pos(),
+        hut_aqua_panel_size(),
+        hut_aqua_detail_pos(),
+        hut_aqua_detail_size(),
+        HUT_AQUA_KINDS,
+        &hut_aqua_buy_row_y,
+    );
+    spawn_panel(
+        &mut commands,
+        &assets,
+        PanelKind::TreeStorage,
+        "STORAGE",
+        hut_tree_storage_panel_pos(),
+        hut_tree_storage_panel_size(),
+        hut_tree_storage_detail_pos(),
+        hut_tree_storage_detail_size(),
+        HUT_TREE_STORAGE_KINDS,
+        &hut_tree_storage_buy_row_y,
     );
     spawn_panel(
         &mut commands,
@@ -258,7 +295,10 @@ fn spawn_main_panel_frame(commands: &mut Commands, tag: PanelKind, pos: Vec2, si
         | PanelKind::HutSkimmer
         | PanelKind::HutFisher
         | PanelKind::HutBeachcomber
-        | PanelKind::HutStonemason => spawn_pointer_west(commands, tag, pos, half),
+        | PanelKind::HutStonemason
+        | PanelKind::HutResearch
+        | PanelKind::HutAqua
+        | PanelKind::TreeStorage => spawn_pointer_west(commands, tag, pos, half),
         // Pier panel sits below its structure; arrow points up
         // toward the pier from the panel's top edge.
         PanelKind::Pier => spawn_pointer_up(commands, tag, pos, half),

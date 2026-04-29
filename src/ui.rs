@@ -11,10 +11,10 @@ use crate::core::assets::GameAssets;
 use crate::core::colors;
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{INTERNAL_WIDTH, Z_BUTTON, Z_UI};
-use crate::currency::Skims;
-use crate::economy::Workers;
+use crate::currency::{Skims, Wood};
+use crate::economy::{ResearchMission, Workers};
 use crate::render::shapes::Shapes;
-use crate::render::{ScreenAnchored, UiText, UI_LAYER};
+use crate::render::{ScreenAnchored, ScreenFixedText, UiText, UI_LAYER};
 
 #[derive(Component)]
 pub struct SkimsLabel;
@@ -31,24 +31,56 @@ pub struct WorkersValue;
 #[derive(Component)]
 pub struct FpsCounter;
 
+#[derive(Component)]
+pub struct WoodLabel;
+
+#[derive(Component)]
+pub struct WoodValue;
+
 /// Rolling per-second counters for the top-left HUD readouts. Other
-/// modules push events into the `*_window` accumulators; the UI
-/// system flushes them into `*_per_sec` once per `WINDOW` and resets
-/// the buckets.
+/// modules push events into the `*_window` in-flight accumulators;
+/// the UI system folds those into a 60-bucket ring (one bucket per
+/// second) and reports the sliding 60-second average.
 ///
 /// Skims are sampled by diffing `Skims.total` so we don't have to
 /// patch every site that grants skims; produced and thrown stones
 /// are bumped at their (single) spawn / toss chokepoints.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct Rates {
     pub stones_produced_window: u32,
     pub stones_thrown_window: u32,
     pub skims_added_window: u64,
     pub last_skims_total: u64,
-    pub window_time: f32,
     pub skims_per_sec: f32,
     pub stones_produced_per_sec: f32,
     pub stones_thrown_per_sec: f32,
+    /// 60 one-second buckets (ring buffer) for each tracked counter.
+    /// Skims are stored as u32-per-second; 60 s of normal play stays
+    /// well under u32::MAX so saturating conversions are fine.
+    pub skim_buckets: [u32; 60],
+    pub produced_buckets: [u32; 60],
+    pub thrown_buckets: [u32; 60],
+    pub bucket_index: usize,
+    pub bucket_time: f32,
+}
+
+impl Default for Rates {
+    fn default() -> Self {
+        Self {
+            stones_produced_window: 0,
+            stones_thrown_window: 0,
+            skims_added_window: 0,
+            last_skims_total: 0,
+            skims_per_sec: 0.0,
+            stones_produced_per_sec: 0.0,
+            stones_thrown_per_sec: 0.0,
+            skim_buckets: [0; 60],
+            produced_buckets: [0; 60],
+            thrown_buckets: [0; 60],
+            bucket_index: 0,
+            bucket_time: 0.0,
+        }
+    }
 }
 
 #[derive(Component)]
@@ -74,6 +106,8 @@ impl Plugin for UiPlugin {
                     update_workers_text,
                     update_fps_text,
                     update_rates,
+                    update_wood_text,
+                    update_wood_visibility,
                 ),
             );
     }
@@ -85,10 +119,12 @@ const HUD_X: f32 = 3.0;
 const HUD_Y: f32 = 3.0;
 const HUD_W: f32 = 80.0;
 const HUD_H: f32 = 26.0;
-/// X position where each PRO/THR row's bar is centered. Picked so
-/// the bar track sits in the right half of the container with a few
-/// pixels of margin from the right edge.
-const BAR_CENTER_X: f32 = HUD_X + 50.0;
+/// Left edge of each PRO/THR row's bar. The bar sprite is anchored
+/// CENTER_LEFT so its left edge stays glued to this X and it grows
+/// rightward as its width increases. Picked so the bar track sits
+/// in the right half of the container with a few pixels of margin
+/// from the right edge.
+const BAR_LEFT_X: f32 = HUD_X + 25.0;
 /// Maximum bar width — reached when one of the two rates carries
 /// 100% of the (PRO+THR) total. Equal rates → both bars at 50%.
 const BAR_MAX_W: f32 = 50.0;
@@ -100,6 +136,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     // SKIMS — primary currency, big yellow value at top center.
     commands.spawn((
         SkimsLabel,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(cx, 6.0),
             spec_font_size: 4.0,
@@ -118,6 +155,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     ));
     commands.spawn((
         SkimsValue,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(cx, 14.0),
             spec_font_size: 8.0,
@@ -152,6 +190,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     // FPS — top of the container.
     commands.spawn((
         FpsCounter,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(HUD_X + 3.0, HUD_Y + 3.0),
             spec_font_size: 4.0,
@@ -173,6 +212,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     // SKM/S — plain text row; no bar.
     commands.spawn((
         SkimsRateValue,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(HUD_X + 3.0, HUD_Y + 8.0),
             spec_font_size: 4.0,
@@ -216,6 +256,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     // skims value. Tighter font so it doesn't compete visually.
     commands.spawn((
         WorkersLabel,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(cx, 24.0),
             spec_font_size: 4.0,
@@ -234,6 +275,7 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
     ));
     commands.spawn((
         WorkersValue,
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(cx, 30.0),
             spec_font_size: 6.0,
@@ -250,6 +292,50 @@ fn spawn_ui(mut commands: Commands, assets: Res<GameAssets>, shapes: Res<Shapes>
         Transform::default(),
         RenderLayers::layer(UI_LAYER),
     ));
+
+    // WOOD — secondary currency, hidden until the Tree Surgeon
+    // upgrade is purchased. Sits under WORKERS so the top-center
+    // stack reads as `SKIMS / WORKERS / WOOD`.
+    commands.spawn((
+        WoodLabel,
+        ScreenFixedText,
+        UiText {
+            spec_pos: Vec2::new(cx, 38.0),
+            spec_font_size: 4.0,
+            z: Z_UI,
+        },
+        Text2d::new("WOOD"),
+        TextFont {
+            font: assets.font.clone(),
+            font_size: 4.0,
+            font_smoothing: bevy::text::FontSmoothing::None,
+            ..default()
+        },
+        TextColor(colors::FG_DIM),
+        Transform::default(),
+        Visibility::Hidden,
+        RenderLayers::layer(UI_LAYER),
+    ));
+    commands.spawn((
+        WoodValue,
+        ScreenFixedText,
+        UiText {
+            spec_pos: Vec2::new(cx, 44.0),
+            spec_font_size: 6.0,
+            z: Z_UI,
+        },
+        Text2d::new("0"),
+        TextFont {
+            font: assets.font.clone(),
+            font_size: 6.0,
+            font_smoothing: bevy::text::FontSmoothing::None,
+            ..default()
+        },
+        TextColor(colors::TREE_FOLIAGE_LIGHT),
+        Transform::default(),
+        Visibility::Hidden,
+        RenderLayers::layer(UI_LAYER),
+    ));
 }
 
 fn spawn_rate_row(
@@ -262,6 +348,7 @@ fn spawn_rate_row(
 ) {
     // "+" / "-" sign on the far left of the row.
     commands.spawn((
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(HUD_X + 3.0, y),
             spec_font_size: 4.0,
@@ -299,6 +386,7 @@ fn spawn_rate_row(
 
     // "/s" suffix.
     commands.spawn((
+        ScreenFixedText,
         UiText {
             spec_pos: Vec2::new(HUD_X + 11.0, y),
             spec_font_size: 4.0,
@@ -321,12 +409,17 @@ fn spawn_rate_row(
     // with zero width so it's invisible until the first update.
     let mut bar = commands.spawn((
         ScreenAnchored {
-            spec_x: BAR_CENTER_X,
+            spec_x: BAR_LEFT_X,
         },
-        Pos(Vec2::new(BAR_CENTER_X, y)),
+        Pos(Vec2::new(BAR_LEFT_X, y)),
         Layer(Z_UI - 0.02),
-        Sprite::from_color(Color::WHITE, Vec2::new(0.0, BAR_HEIGHT)),
+        Sprite {
+            color: Color::WHITE,
+            custom_size: Some(Vec2::new(0.0, BAR_HEIGHT)),
+            ..default()
+        },
         Transform::default(),
+        Anchor::CENTER_LEFT,
     ));
     if is_pro {
         bar.insert(ProBar);
@@ -347,6 +440,46 @@ fn update_skims_text(
     }
 }
 
+fn update_wood_text(
+    wood: Res<Wood>,
+    mut q: Query<&mut Text2d, With<WoodValue>>,
+) {
+    if !wood.is_changed() {
+        return;
+    }
+    for mut t in &mut q {
+        t.0 = format!("{}", wood.total);
+    }
+}
+
+/// Reveal the WOOD label + value once the research mission's scout
+/// finishes its cinematic; keep them hidden until then so the
+/// top-center stack stays uncluttered for new players.
+fn update_wood_visibility(
+    mission: Res<ResearchMission>,
+    mut label_q: Query<&mut Visibility, (With<WoodLabel>, Without<WoodValue>)>,
+    mut value_q: Query<&mut Visibility, (With<WoodValue>, Without<WoodLabel>)>,
+) {
+    if !mission.is_changed() {
+        return;
+    }
+    let target = if mission.unlocked {
+        Visibility::Visible
+    } else {
+        Visibility::Hidden
+    };
+    for mut v in &mut label_q {
+        if *v != target {
+            *v = target;
+        }
+    }
+    for mut v in &mut value_q {
+        if *v != target {
+            *v = target;
+        }
+    }
+}
+
 fn update_workers_text(
     workers: Res<Workers>,
     mut q: Query<&mut Text2d, With<WorkersValue>>,
@@ -358,15 +491,6 @@ fn update_workers_text(
         t.0 = format!("{}", workers.count);
     }
 }
-
-/// Refresh interval for the per-second readouts. Long enough to
-/// smooth out short bursts (a player click flurry, a fisherman cast
-/// completing) but short enough to feel responsive.
-const RATE_WINDOW: f32 = 1.0;
-/// EMA smoothing factor — each window the displayed rate moves
-/// `RATE_BLEND` of the way toward the new measurement. 0.5 is a
-/// good balance of stability and responsiveness.
-const RATE_BLEND: f32 = 0.5;
 
 fn update_rates(
     time: Res<Time>,
@@ -382,31 +506,48 @@ fn update_rates(
     rates.skims_added_window = rates.skims_added_window.saturating_add(delta);
     rates.last_skims_total = skims.total;
 
-    rates.window_time += time.delta_secs();
-    if rates.window_time < RATE_WINDOW {
-        return;
-    }
-    let elapsed = rates.window_time;
-    let skm_now = rates.skims_added_window as f32 / elapsed;
-    let pro_now = rates.stones_produced_window as f32 / elapsed;
-    let thr_now = rates.stones_thrown_window as f32 / elapsed;
-    rates.skims_per_sec = rates.skims_per_sec * (1.0 - RATE_BLEND) + skm_now * RATE_BLEND;
-    rates.stones_produced_per_sec =
-        rates.stones_produced_per_sec * (1.0 - RATE_BLEND) + pro_now * RATE_BLEND;
-    rates.stones_thrown_per_sec =
-        rates.stones_thrown_per_sec * (1.0 - RATE_BLEND) + thr_now * RATE_BLEND;
+    // Roll the in-flight accumulators into the current bucket every
+    // frame. When the bucket fills up (>=1s), advance the ring index
+    // and clear the new bucket so the oldest second drops out.
+    rates.bucket_time += time.delta_secs();
+    let idx = rates.bucket_index;
+    let skim_sample = u32::try_from(rates.skims_added_window).unwrap_or(u32::MAX);
+    rates.skim_buckets[idx] = rates.skim_buckets[idx].saturating_add(skim_sample);
+    rates.produced_buckets[idx] = rates.produced_buckets[idx]
+        .saturating_add(rates.stones_produced_window);
+    rates.thrown_buckets[idx] = rates.thrown_buckets[idx]
+        .saturating_add(rates.stones_thrown_window);
     rates.skims_added_window = 0;
     rates.stones_produced_window = 0;
     rates.stones_thrown_window = 0;
-    rates.window_time = 0.0;
+
+    while rates.bucket_time >= 1.0 {
+        rates.bucket_time -= 1.0;
+        rates.bucket_index = (rates.bucket_index + 1) % 60;
+        let new_idx = rates.bucket_index;
+        rates.skim_buckets[new_idx] = 0;
+        rates.produced_buckets[new_idx] = 0;
+        rates.thrown_buckets[new_idx] = 0;
+    }
+
+    // Sliding 60-second averages — the sum updates every frame
+    // (the in-flight portion is folded into the current bucket
+    // above) so no EMA smoothing is needed.
+    let skim_sum: u64 = rates.skim_buckets.iter().map(|&v| v as u64).sum();
+    let pro_sum: u64 = rates.produced_buckets.iter().map(|&v| v as u64).sum();
+    let thr_sum: u64 = rates.thrown_buckets.iter().map(|&v| v as u64).sum();
+    rates.skims_per_sec = skim_sum as f32 / 60.0;
+    rates.stones_produced_per_sec = pro_sum as f32 / 60.0;
+    rates.stones_thrown_per_sec = thr_sum as f32 / 60.0;
 
     for mut t in &mut skm_q {
         t.0 = format!("SKM/S {:.1}", rates.skims_per_sec);
     }
     // Bars are normalised against (pro + thr) so they always share
     // the same horizontal track. Equal rates → 50% / 50%; PRO at
-    // double THR → 66% / 33%. Sprites are center-anchored so the
-    // bars sit centered on `BAR_CENTER_X` regardless of width.
+    // double THR → 66% / 33%. Sprites are CENTER_LEFT-anchored so
+    // their left edges stay pinned to `BAR_LEFT_X` and they grow
+    // rightward as width increases.
     let pro = rates.stones_produced_per_sec.max(0.0);
     let thr = rates.stones_thrown_per_sec.max(0.0);
     let total = pro + thr;

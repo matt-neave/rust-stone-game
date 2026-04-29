@@ -6,14 +6,15 @@ use bevy::prelude::*;
 use crate::audio::{PlaySoundEvent, SoundKind};
 use crate::core::common::Pos;
 use crate::core::constants::{
-    FISH_COST, HUT_COST, PIER_COST, SKIM_UPGRADE_COST, UPGRADE_LEVEL_CAP, WORKER_COST,
+    FISH_COST, HUT_COST, SKIM_UPGRADE_COST, UPGRADE_LEVEL_CAP, WORKER_COST,
 };
 use crate::core::input::ClickEvent;
-use crate::currency::Skims;
+use crate::currency::{Skims, Wood};
 
 use super::{
-    BeachcomberHut, FisherHut, HoverState, Hut, MinerHut, MinerUpgrades, Pier, Port,
-    PurchaseButton, SkimUpgrades, SkimmerHut, StonemasonHut, UpgradeRes, Workers,
+    AquaHut, AutoFishing, BeachcomberHut, BuildingsRes, FisherHut, HoverState, Hut, MinerHut,
+    MinerUpgrades, Pier, Port, PurchaseButton, ResearchHut, ResearchMission, SkimUpgrades,
+    SkimmerHut, StonemasonHut, TreeStorage, UpgradeRes, Workers,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -59,6 +60,28 @@ pub enum PurchaseKind {
     Port,
     /// Repeatable bucket of fish — sold by the pier.
     Fish,
+    /// One-time research facility — gated behind the foragers hut.
+    /// Unlocks the Aqua Center.
+    HutResearch,
+    /// One-time aqua center — gated behind the research facility.
+    /// Sells the AutoFishing upgrade.
+    HutAqua,
+    /// One-time AutoFishing upgrade — gated behind the aqua center +
+    /// the pier. Once owned, periodically auto-buys fish buckets.
+    AutoFishing,
+    /// Toggle row that appears below the AutoFishing row once it has
+    /// been purchased. Free; clicking flips the enabled flag.
+    AutoFishingToggle,
+    /// Research mission — sends a scout to investigate the standalone
+    /// tree. Costs 75 skims + 1 worker. Unlocks the leftward scroll,
+    /// reveals the tree, and surfaces the Wood counter once the
+    /// scout's cinematic finishes.
+    ResearchMission,
+    /// One-time storage upgrade — appears in the research panel after
+    /// the mission cinematic completes. Replaces the broken wreck
+    /// next to the tree with a whole crate; clicked wood pieces fly
+    /// straight into it instead of skittering to a new ground spot.
+    TreeStorage,
 }
 
 impl PurchaseKind {
@@ -82,6 +105,12 @@ impl PurchaseKind {
             PurchaseKind::Pier => "Pier",
             PurchaseKind::Port => "Port",
             PurchaseKind::Fish => "Bucket",
+            PurchaseKind::HutResearch => "Research",
+            PurchaseKind::HutAqua => "AquaCntr",
+            PurchaseKind::AutoFishing => "AutoFish",
+            PurchaseKind::AutoFishingToggle => "Auto",
+            PurchaseKind::ResearchMission => "Mission",
+            PurchaseKind::TreeStorage => "Storage",
         }
     }
 
@@ -104,9 +133,18 @@ impl PurchaseKind {
             PurchaseKind::Beachcomber => "1W",
             PurchaseKind::Stonemason => "100+1W",
             PurchaseKind::Boatman => "1W",
-            PurchaseKind::Pier => "30",
+            PurchaseKind::Pier => "10W",
             PurchaseKind::Port => "50",
             PurchaseKind::Fish => "5",
+            PurchaseKind::HutResearch => "50",
+            PurchaseKind::HutAqua => "75",
+            PurchaseKind::AutoFishing => "100",
+            // Dynamic — `update_dynamic_cost_text` rewrites this each
+            // frame to "ON" or "OFF" based on the AutoFishing.enabled
+            // flag. The static label is the default-on value.
+            PurchaseKind::AutoFishingToggle => "ON",
+            PurchaseKind::ResearchMission => "75+1W",
+            PurchaseKind::TreeStorage => "50",
         }
     }
 }
@@ -121,8 +159,24 @@ pub const CAVE_PANEL_KINDS: &[PurchaseKind] = &[
     PurchaseKind::HutFisher,
     PurchaseKind::HutBeachcomber,
     PurchaseKind::HutStonemason,
+    PurchaseKind::HutResearch,
     PurchaseKind::Pier,
 ];
+
+/// Research facility — sells the Aqua Center and the wood-mission
+/// upgrade. The storage follow-up moved to its own panel anchored on
+/// the broken-store visual itself.
+pub const HUT_RESEARCH_KINDS: &[PurchaseKind] = &[
+    PurchaseKind::HutAqua,
+    PurchaseKind::ResearchMission,
+];
+
+/// Tree-storage building — its sole row buys the upgrade.
+pub const HUT_TREE_STORAGE_KINDS: &[PurchaseKind] = &[PurchaseKind::TreeStorage];
+
+/// Aqua Center — sells AutoFishing + the toggle row.
+pub const HUT_AQUA_KINDS: &[PurchaseKind] =
+    &[PurchaseKind::AutoFishing, PurchaseKind::AutoFishingToggle];
 
 /// Foragers hut — sells workers only.
 pub const HUT_PANEL_KINDS: &[PurchaseKind] = &[PurchaseKind::Worker];
@@ -176,9 +230,16 @@ pub fn cost_for(kind: PurchaseKind) -> u64 {
         PurchaseKind::Stonemason => 100,
         PurchaseKind::MinerDamage => 30,
         PurchaseKind::SkimUpgrade => SKIM_UPGRADE_COST,
-        PurchaseKind::Pier => PIER_COST,
+        // Pier is now paid in wood; no skims deducted.
+        PurchaseKind::Pier => 0,
         PurchaseKind::Port => 50,
         PurchaseKind::Fish => FISH_COST,
+        PurchaseKind::HutResearch => 50,
+        PurchaseKind::HutAqua => 75,
+        PurchaseKind::AutoFishing => 100,
+        PurchaseKind::AutoFishingToggle => 0,
+        PurchaseKind::ResearchMission => 75,
+        PurchaseKind::TreeStorage => 50,
     }
 }
 
@@ -189,6 +250,16 @@ pub fn current_cost_for(kind: PurchaseKind, workers: &Workers) -> u64 {
     match kind {
         PurchaseKind::Worker => current_worker_cost(workers),
         _ => cost_for(kind),
+    }
+}
+
+/// Wood cost for a row, parallel to `cost_for`. Most rows cost zero
+/// wood; the pier is the one exception (10 wood after the research
+/// mission unlocks the tree).
+pub fn wood_cost_for(kind: PurchaseKind) -> u64 {
+    match kind {
+        PurchaseKind::Pier => 10,
+        _ => 0,
     }
 }
 
@@ -217,9 +288,15 @@ pub fn can_afford(
     sm_hut: &StonemasonHut,
     pier: &Pier,
     port: &Port,
+    research_hut: &ResearchHut,
+    aqua_hut: &AquaHut,
+    auto_fish: &AutoFishing,
+    mission: &ResearchMission,
+    storage: &TreeStorage,
     workers: &Workers,
     skim_upgrades: &SkimUpgrades,
     miner_upgrades: &MinerUpgrades,
+    wood: &Wood,
 ) -> bool {
     match kind {
         // Cave-panel structure unlocks.
@@ -240,9 +317,12 @@ pub fn can_afford(
             miner_hut.owned && !sm_hut.owned && skims.total >= 15
         }
         PurchaseKind::Pier => {
+            // Paid in wood now — gated behind the research mission's
+            // wood pipeline. Skim cost is zero; the wood requirement
+            // replaces the old PIER_COST gate.
             (skimmer_hut.owned || fisher_hut.owned)
                 && !pier.owned
-                && skims.total >= PIER_COST
+                && wood.total >= wood_cost_for(PurchaseKind::Pier)
         }
         // Pier-panel rows.
         PurchaseKind::Fish => pier.owned && skims.total >= FISH_COST,
@@ -268,6 +348,30 @@ pub fn can_afford(
                 && skim_upgrades.level < UPGRADE_LEVEL_CAP
                 && skims.total >= SKIM_UPGRADE_COST
         }
+        PurchaseKind::HutResearch => {
+            hut.owned && !research_hut.owned && skims.total >= 50
+        }
+        PurchaseKind::HutAqua => {
+            research_hut.owned && pier.owned && !aqua_hut.owned && skims.total >= 75
+        }
+        PurchaseKind::AutoFishing => {
+            aqua_hut.owned && pier.owned && !auto_fish.owned && skims.total >= 100
+        }
+        // Toggle row is free.
+        PurchaseKind::AutoFishingToggle => aqua_hut.owned && auto_fish.owned,
+        // Research Mission — research-panel one-shot, gated by the
+        // research facility being built. Costs 75 skims + 1 worker.
+        PurchaseKind::ResearchMission => {
+            research_hut.owned
+                && !mission.started
+                && !mission.unlocked
+                && skims.total >= 75
+                && workers.count >= 1
+        }
+        // Tree Storage — appears once the cinematic completes.
+        PurchaseKind::TreeStorage => {
+            mission.unlocked && !storage.owned && skims.total >= 50
+        }
     }
 }
 
@@ -286,6 +390,11 @@ pub fn row_visible(
     fisher_hut: &FisherHut,
     _pier: &Pier,
     _port: &Port,
+    _research_hut: &ResearchHut,
+    aqua_hut: &AquaHut,
+    auto_fish: &AutoFishing,
+    mission: &ResearchMission,
+    storage: &TreeStorage,
 ) -> bool {
     match kind {
         PurchaseKind::Hut => true,
@@ -310,6 +419,21 @@ pub fn row_visible(
         | PurchaseKind::Skimmer
         | PurchaseKind::SkimUpgrade
         | PurchaseKind::Fisherman => true,
+        // Cave-panel research row reveals once the foragers hut is up.
+        PurchaseKind::HutResearch => hut.owned,
+        // AquaCenter row in the research panel is always shown there.
+        PurchaseKind::HutAqua => true,
+        // AutoFishing row in the aqua panel is always shown.
+        PurchaseKind::AutoFishing => true,
+        // Toggle row only reveals after AutoFishing has been bought.
+        PurchaseKind::AutoFishingToggle => {
+            aqua_hut.owned && auto_fish.owned
+        }
+        // Research Mission row is shown until the cinematic finishes;
+        // afterwards it collapses so TreeStorage takes its slot.
+        PurchaseKind::ResearchMission => !mission.unlocked,
+        // Tree Storage row only reveals once the mission cinematic completes.
+        PurchaseKind::TreeStorage => mission.unlocked && !storage.owned,
     }
 }
 
@@ -327,6 +451,11 @@ pub fn button_active(
     sm_hut: &StonemasonHut,
     pier: &Pier,
     port: &Port,
+    research_hut: &ResearchHut,
+    aqua_hut: &AquaHut,
+    auto_fish: &AutoFishing,
+    mission: &ResearchMission,
+    storage: &TreeStorage,
     hover: &HoverState,
 ) -> bool {
     match kind {
@@ -352,6 +481,27 @@ pub fn button_active(
         PurchaseKind::Fish => pier.owned && hover.pier,
         PurchaseKind::Port => pier.owned && !port.owned && hover.pier,
         PurchaseKind::Boatman => port.owned && hover.port,
+        PurchaseKind::HutResearch => {
+            hut.owned && !research_hut.owned && hover.cave
+        }
+        PurchaseKind::HutAqua => {
+            research_hut.owned && pier.owned && !aqua_hut.owned && hover.hut_research
+        }
+        PurchaseKind::AutoFishing => {
+            aqua_hut.owned && pier.owned && !auto_fish.owned && hover.hut_aqua
+        }
+        PurchaseKind::AutoFishingToggle => {
+            aqua_hut.owned && auto_fish.owned && hover.hut_aqua
+        }
+        PurchaseKind::ResearchMission => {
+            research_hut.owned
+                && !mission.started
+                && !mission.unlocked
+                && hover.hut_research
+        }
+        PurchaseKind::TreeStorage => {
+            mission.unlocked && !storage.owned && hover.hut_tree_storage
+        }
     }
 }
 
@@ -368,6 +518,11 @@ pub fn is_sold_out(
     sm_hut: &StonemasonHut,
     pier: &Pier,
     port: &Port,
+    research_hut: &ResearchHut,
+    aqua_hut: &AquaHut,
+    auto_fish: &AutoFishing,
+    mission: &ResearchMission,
+    storage: &TreeStorage,
     skim_upgrades: &SkimUpgrades,
     miner_upgrades: &MinerUpgrades,
 ) -> bool {
@@ -383,6 +538,13 @@ pub fn is_sold_out(
         // Repeatable upgrades sell out at the level cap.
         PurchaseKind::SkimUpgrade => skim_upgrades.level >= UPGRADE_LEVEL_CAP,
         PurchaseKind::MinerDamage => miner_upgrades.damage_level >= UPGRADE_LEVEL_CAP,
+        PurchaseKind::HutResearch => research_hut.owned,
+        PurchaseKind::HutAqua => aqua_hut.owned,
+        PurchaseKind::AutoFishing => auto_fish.owned,
+        // Toggle is never "sold out" — it's a perpetual switch.
+        PurchaseKind::AutoFishingToggle => false,
+        PurchaseKind::ResearchMission => mission.started || mission.unlocked,
+        PurchaseKind::TreeStorage => storage.owned,
         _ => false,
     }
 }
@@ -394,23 +556,30 @@ pub(super) fn handle_button_clicks(
     mut purchases: MessageWriter<PurchaseEvent>,
     mut sound: MessageWriter<PlaySoundEvent>,
     mut skims: ResMut<Skims>,
-    hut: Res<Hut>,
-    miner_hut: Res<MinerHut>,
-    skimmer_hut: Res<SkimmerHut>,
-    fisher_hut: Res<FisherHut>,
-    bc_hut: Res<BeachcomberHut>,
-    sm_hut: Res<StonemasonHut>,
-    pier: Res<Pier>,
-    port: Res<Port>,
+    mut wood: ResMut<Wood>,
+    bld: BuildingsRes,
     workers: Res<Workers>,
     upgrades: UpgradeRes,
     hover: Res<HoverState>,
 ) {
+    let hut = &*bld.hut;
+    let miner_hut = &*bld.miner;
+    let skimmer_hut = &*bld.skimmer;
+    let fisher_hut = &*bld.fisher;
+    let bc_hut = &*bld.bc;
+    let sm_hut = &*bld.sm;
+    let pier = &*bld.pier;
+    let port = &*bld.port;
+    let research_hut = &*bld.research;
+    let aqua_hut = &*bld.aqua;
+    let auto_fish = &*bld.auto_fish;
+    let mission = &*bld.research_mission;
+    let storage = &*bld.tree_storage;
     for ev in clicks.read() {
         for (btn, pos) in &buttons {
             if !button_active(
-                btn.kind, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut, &pier,
-                &port, &hover,
+                btn.kind, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier, port,
+                research_hut, aqua_hut, auto_fish, mission, storage, &hover,
             ) {
                 continue;
             }
@@ -421,8 +590,9 @@ pub(super) fn handle_button_clicks(
                 continue;
             }
             if !can_afford(
-                btn.kind, &skims, &hut, &miner_hut, &skimmer_hut, &fisher_hut, &bc_hut, &sm_hut,
-                &pier, &port, &workers, &upgrades.skim, &upgrades.miner,
+                btn.kind, &skims, hut, miner_hut, skimmer_hut, fisher_hut, bc_hut, sm_hut, pier,
+                port, research_hut, aqua_hut, auto_fish, mission, storage, &workers,
+                &upgrades.skim, &upgrades.miner, &wood,
             ) {
                 sound.write(PlaySoundEvent {
                     kind: SoundKind::Click,
@@ -431,7 +601,16 @@ pub(super) fn handle_button_clicks(
                 });
                 continue;
             }
-            skims.total = skims.total.saturating_sub(current_cost_for(btn.kind, &workers));
+            // Toggle row is free — skip the deduction so the cost
+            // column staying at "ON"/"OFF" with cost_for == 0 doesn't
+            // accidentally deduct anything.
+            if btn.kind != PurchaseKind::AutoFishingToggle {
+                skims.total = skims.total.saturating_sub(current_cost_for(btn.kind, &workers));
+                let wood_cost = wood_cost_for(btn.kind);
+                if wood_cost > 0 {
+                    wood.total = wood.total.saturating_sub(wood_cost);
+                }
+            }
             purchases.write(PurchaseEvent { kind: btn.kind });
             sound.write(PlaySoundEvent {
                 kind: SoundKind::Reward,

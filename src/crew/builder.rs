@@ -15,10 +15,10 @@ use rand::Rng;
 
 use crate::core::common::{Layer, Pos};
 use crate::core::constants::{
-    CAVE_X, CAVE_Y, HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y, HUT_BODY_H, HUT_FISHER_X, HUT_FISHER_Y,
-    HUT_MINER_X, HUT_MINER_Y, HUT_ROOF_H, HUT_ROOF_W, HUT_SKIMMER_X, HUT_SKIMMER_Y,
-    HUT_STONEMASON_X, HUT_STONEMASON_Y, HUT_X, HUT_Y, PIER_H, PIER_W, PIER_X, PIER_Y, PORT_H,
-    PORT_W, PORT_X, PORT_Y, Z_CREW, Z_HUT,
+    CAVE_X, CAVE_Y, HUT_AQUA_X, HUT_AQUA_Y, HUT_BEACHCOMBER_X, HUT_BEACHCOMBER_Y, HUT_BODY_H,
+    HUT_FISHER_X, HUT_FISHER_Y, HUT_MINER_X, HUT_MINER_Y, HUT_RESEARCH_X, HUT_RESEARCH_Y,
+    HUT_ROOF_H, HUT_ROOF_W, HUT_SKIMMER_X, HUT_SKIMMER_Y, HUT_STONEMASON_X, HUT_STONEMASON_Y,
+    HUT_X, HUT_Y, PIER_H, PIER_W, PIER_X, PIER_Y, PORT_H, PORT_W, PORT_X, PORT_Y, Z_CREW, Z_HUT,
 };
 use crate::core::colors;
 use crate::economy::{PurchaseEvent, PurchaseKind, Workers};
@@ -160,6 +160,16 @@ fn build_spec_for(kind: PurchaseKind) -> Option<BuildSpec> {
             site: Vec2::new(HUT_STONEMASON_X, HUT_STONEMASON_Y),
             footprint: Vec2::new(hut_w, hut_h),
             color: colors::STONEMASON_BODY,
+        },
+        PurchaseKind::HutResearch => BuildSpec {
+            site: Vec2::new(HUT_RESEARCH_X, HUT_RESEARCH_Y),
+            footprint: Vec2::new(hut_w, hut_h),
+            color: Color::srgb(0.40, 0.55, 0.60),
+        },
+        PurchaseKind::HutAqua => BuildSpec {
+            site: Vec2::new(HUT_AQUA_X, HUT_AQUA_Y),
+            footprint: Vec2::new(hut_w, hut_h),
+            color: Color::srgb(0.45, 0.70, 0.80),
         },
         PurchaseKind::Pier => BuildSpec {
             site: Vec2::new(PIER_X, PIER_Y),
@@ -335,6 +345,8 @@ fn is_hut_kind(k: PurchaseKind) -> bool {
             | PurchaseKind::HutFisher
             | PurchaseKind::HutBeachcomber
             | PurchaseKind::HutStonemason
+            | PurchaseKind::HutResearch
+            | PurchaseKind::HutAqua
     )
 }
 
